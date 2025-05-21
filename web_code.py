@@ -20,6 +20,8 @@ import tempfile
 from neurocurator import Neurocurator
 from sklearn.cluster import KMeans
 import time
+import hippie
+from hippie.dataloading import MultiModalEphysDataset, EphysDatasetLabeled, BalancedBatchSampler, none_safe_collate
 
 
 st.set_page_config(layout="wide", page_title="Neural data visualizer", page_icon=":bar_chart:")
@@ -80,9 +82,9 @@ if uploaded_phisiological_data_zip is not None:
     @st.cache_resource()
     def normalize_by_row_max(df):
         return df.apply(lambda row: row / row.sum(), axis=0)
-
+    
     @st.cache_resource()
-    def plotter(data, title, x_label, y_label):
+    def plotter(data, title, x_label, y_label, selected_cluster=None):
         p = figure(
             title=title,
             x_axis_label=x_label,
@@ -101,39 +103,26 @@ if uploaded_phisiological_data_zip is not None:
         for index, row in data.iterrows():
             x = list(range(len(row)))
             y = row.values
-            p.line(x, y, line_width=1, alpha=0.3, color="red")
-        #print("Yes I'm doing this again")
-        p.add_tools(HoverTool(tooltips=[("x", "$x"), ("y", "$y")]))
-        return p
 
-    def plotter_color(data, title, x_label, y_label, selected_cluster):
-        p = figure(
-            title=title,
-            x_axis_label=x_label,
-            y_axis_label=y_label,
-            width=800,
-            height=600,
-            tools='pan,wheel_zoom,box_zoom,reset'
-        )
-        
-        p.background_fill_color = None
-        p.border_fill_color = None
-        p.xaxis.major_label_text_color = "white"
-        p.yaxis.major_label_text_color = "white"
-        p.xaxis.axis_label_text_color = "white"
-        p.yaxis.axis_label_text_color = "white"
-        p.title.text_color = "white"
+            if selected_cluster is not None:
+                line_color = "red" if row['Cluster'] == selected_cluster else "gray"
+                line_alpha = 0.8 if row['Cluster'] == selected_cluster else 0.3
+                line_width = 1 if row['Cluster'] == selected_cluster else 0.5
+            else:  
+                line_color = "red"
+                line_alpha = 0.3
+                line_width = 1
 
-        for index, row in data.iterrows():
-            x = list(range(len(row) - 1)) #the -1 to exclude the last column which belongs to the cluster
-            y = row.values
-            line_color = "red" if row['Cluster'] == selected_cluster else "gray"
-            line_alpha = 0.8 if row['Cluster'] == selected_cluster else 0.3
-            line_width = 1 if row['Cluster'] == selected_cluster else 0.5
             p.line(x, y, line_width=line_width, alpha=line_alpha, color=line_color)
         #print("Yes I'm doing this again")
         p.add_tools(HoverTool(tooltips=[("x", "$x"), ("y", "$y")]))
         return p
+    
+    @st.cache_resource()
+    def compute_umap(data):
+        umap_model = umap.UMAP()
+        embedding = umap_model.fit_transform(data)
+        return embedding
 
     #acg file
     normalized_acg = normalize_to_minus1_1(uploaded_file_acg)
@@ -150,6 +139,77 @@ if uploaded_phisiological_data_zip is not None:
     p = plotter(normalized_waveforms, 'Waveforms', 'Timepoint', 'Amplitude')
     st.bokeh_chart(p)
 
+    #TODO: pytorch dataloader for HIPPIE
+
+    #load checkpoint
+    #model = MultiModalCVAETrainModule.load_from_checkpoint("path/to/your/checkpoint.ckpt")
+    #model.eval()
+    
+    #make dropdown panel with source
+    dataset_files = {
+        "braingeneers_manual_curation": 1,
+        "cellexplorer_area": 2,
+        "hausser": 3,
+        "hull": 4,
+        "lisberger": 5,
+        "mouse_organoids_cell_line": 6
+    }
+    source = st.selectbox(
+            'Select how your data was obtained',
+            options=dataset_files.keys(),
+        )
+    source = dataset_files[source]
+
+    #pass all normalized datasets to numpy
+    normalized_acg_numpy = normalized_acg.to_numpy()
+    normalized_isi_numpy = normalized_isi.to_numpy()
+    normalized_waveforms_numpy = normalized_waveforms.to_numpy()
+
+    #create a multimodal dataset with all modalities
+    #TODO igualar dimensiones de todas a las default, wf 50, acg y isi 100 interpolate
+    data_dict = {
+        'wave': normalized_waveforms_numpy,
+        'acg': normalized_acg_numpy,
+        'isi': normalized_isi_numpy
+    }
+
+    dataset_multi = MultiModalEphysDataset(data_dict, source, mode='multi')
+
+    #dataloader
+    loader = DataLoader(
+        dataset_multi,
+        batch_size=64,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True
+    )
+
+    embedding, labels = get_embeddings_multimodal(loader, model)
+
+    #TODO: get HIPPIE embedings
+    #create a multimodal dataset with all modalities
+    data_dict = {
+        'wave': normalized_waveforms_numpy,
+        'acg': normalized_acg_numpy,
+        'isi': normalized_isi_numpy
+    }
+
+    dataset_multi = MultiModalEphysDataset(data_dict, source, mode='multi')
+
+    #dataloader
+    loader = DataLoader(
+        dataset_multi,
+        batch_size=64,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True
+    )
+
+    embedding, labels = get_embeddings_multimodal(loader, model)
+
+
+    #TODO: Get UMAP embedings
+
     #UMAP
     #joining the datasets by rows
     combined_df = pd.concat([normalized_acg, normalized_waveforms, normalized_isi], axis=1)
@@ -157,12 +217,6 @@ if uploaded_phisiological_data_zip is not None:
     #dropping rows with NaN
     combined_df_clean = combined_df.dropna()
     st.write("Number of NaN rows dropped: ", len(combined_df)- len(combined_df_clean))
-    
-    @st.cache_resource()
-    def compute_umap(data):
-        umap_model = umap.UMAP()
-        embedding = umap_model.fit_transform(data)
-        return embedding
     
     embedding = compute_umap(combined_df_clean)
 
@@ -200,14 +254,15 @@ if uploaded_phisiological_data_zip is not None:
         sel_isi_types = isi_types[isi_types['Cluster'] == option]
         sel_waveforms_types = waveforms_types[waveforms_types['Cluster'] == option]
 
+    
+        p = plotter(acg_types, 'ACG_fancy', 'Timepoint', 'Amplitude', option)
+        st.bokeh_chart(p)
+    
 
-        p = plotter_color(acg_types, 'ACG_fancy', 'Timepoint', 'Amplitude', option)
+        p = plotter(isi_types, 'ISI distribution_fancy', 'Timepoint', 'Amplitude', option)
         st.bokeh_chart(p)
 
-        p = plotter_color(isi_types, 'ISI distribution_fancy', 'Timepoint', 'Amplitude', option)
-        st.bokeh_chart(p)
-
-        p = plotter_color(waveforms_types, 'Waveforms_fancy', 'Timepoint', 'Amplitude', option)
+        p = plotter(waveforms_types, 'Waveforms_fancy', 'Timepoint', 'Amplitude', option)
         st.bokeh_chart(p)
 
 
