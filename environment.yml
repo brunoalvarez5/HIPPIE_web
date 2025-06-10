@@ -1,0 +1,22 @@
+name: hippie_env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - numpy=1.23.5
+  - pandas=1.5.3
+  - matplotlib=3.7.1
+  - scikit-learn=1.2.2
+  - umap-learn=0.5.4
+  - bokeh=3.3.4
+  - altair=5.0.1
+  - streamlit=1.31.0
+  - pytorch=2.0.1
+  - torchvision=0.15.2
+  - pytorch-lightning=2.0.1
+  - onnxruntime=1.15.1
+  - pip
+  - pip:
+      - wandb==0.16.6
+
