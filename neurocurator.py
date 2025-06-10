@@ -69,26 +69,27 @@ class Neurocurator:
             raise ValueError(f"File is not a valid zip archive: {qm_path}")
         
         return train, neuron_data, config, fs
-    
+
     def load_acqm(self, acqm_path):
         """
         Reads the acqm file and returns the waveforms and spike times of the neurons in the Hippie object.
         """
         train, neuron_data, config, fs = self.load_curation_file(acqm_path)
-        #pass from seconds to ms
-        train = self.seconds_2_ms(train)
         # Sampling rate just in case
         self.sampling_rate = fs
         # Extract spike trains
         self.spike_times_train = train
+        # Convert spike times to ms
+        self.spike_times_train = [np.array(spike_times) * 1000 for spike_times in self.spike_times_train]
         # Extract waveforms
         self.waveforms = self.extract_waveforms(neuron_data)
         # Extract ISI distribution
-        self.isi_distribution = self.compute_isi_distribution(train)
+        self.isi_distribution = self.compute_isi_distribution()
         # Extract autocorrelogram
         self.acgs = self.compute_autocorrelogram(train)
         # Extract position
         self.metadata_obs = self.extract_neuron_positions(neuron_data)
+
         #Validate data integrity
         self.validate_data_integrity()
         #Don't return anything, just set the attributes
@@ -103,50 +104,38 @@ class Neurocurator:
 
         neuron_dataframe = pd.DataFrame()
         neuron_array = []
-        neuron_cut = []
-        # We would need to cut the neuron into X points 20 before the minimum and 30 after the minimum
-        # We will use the minimum as the reference point
-        def neuron_waveform_processing(datapoints_before, datapoints_after, neuron_dataframe, neuron_array, neuron_cut, neuron_id, neuron):
+        for neuron_id, neuron in neuron_data.items():
             # print(neuron_id,neuron)
             try:
                 neuron_waveforms = neuron["waveforms"]
                 neuron_flag = "waveforms"
+                # Calculate mean waveform
+                mean_waveform = np.mean(neuron_waveforms, axis=0)
+                # Add mean waveform to dataframe
+                neuron_array.append(mean_waveform)
             except:
                 neuron_waveforms = neuron["template"]
                 neuron_flag = "template"
-            # Calculate mean waveform
-            mean_waveform = np.mean(neuron_waveforms, axis=0)
-            # Add mean waveform to dataframe
-            neuron_array.append(mean_waveform)
-        
-            if neuron_flag == "template":
-                print("No waveforms, using template instead")
+                neuron_array.append(neuron_waveforms)
 
-            min_idx = np.argmin(mean_waveform)
+
+        if neuron_flag == "template":
+            print("No waveforms, using template instead")
+
+        # We would need to cut the neuron into X points 20 before the minimum and 30 after the minimum
+        # We will use the minimum as the reference point
+        neuron_cut = []
+        for neuron in neuron_array:
+            min_idx = np.argmin(neuron)
             try:
-                cut = mean_waveform[min_idx - datapoints_before : min_idx + datapoints_after]
-                if len(cut) != n_datapoints:
-                    raise ValueError("cut mismatch")
+                neuron_cut.append(
+                    neuron[min_idx - datapoints_before : min_idx + datapoints_after]
+                )
             except:
                 # If it goes out of bounds we will interpolate the waveform but now just fill with zeros
-                cut = np.zeros(n_datapoints)
-            
-            return cut
-        
-        #for neuron_id, neuron in neuron_data.items():
-        
-        neuron_cut = Parallel(n_jobs=-1)(
-            delayed(neuron_waveform_processing)(
-                datapoints_before, datapoints_after, neuron_dataframe, neuron_array, neuron_cut, neuron_id, neuron
-            )
-            for neuron_id, neuron in neuron_data.items()
-        )
+                neuron_cut.append(np.zeros(n_datapoints))
 
-        all_cuts = np.vstack(neuron_cut)
-
-
-
-        neuron_dataframe = pd.DataFrame(all_cuts)
+        neuron_dataframe = pd.DataFrame(neuron_cut)
         return neuron_dataframe
 
     def extract_neuron_positions(self, neuron_data):
@@ -205,28 +194,25 @@ class Neurocurator:
             isi.append(isi_unit)
         return isi
 
-    def compute_isi_distribution(self, train, time_window=100):
+    def compute_isi_distribution(self, time_window=100):
         """
         Extracts the interspike interval distribution of the neurons in the Hippie object.
         time_window: the time window in which to calculate the interspike interval distribution in milliseconds
         It will create a histogram with 1 ms bins
         """
         interspike_intervals_object = self.compute_all_isis(
-            train
+            self.spike_times_train
         )
-        isi_distribution = []
-        for idx, isi in enumerate(interspike_intervals_object):
-            try:
-                hist, bin_edges = np.histogram(isi[isi < time_window], bins=time_window)
-                # Just extracting the counts
-                # hist = hist / np.sum(hist)
-            except:
-                # If there is no interspike interval, we will just create a zero array
-                hist = np.zeros(time_window)
-            isi_distribution.append(hist)
-        # Create a pandas dataframe with the interspike interval distribution
-        isi_df = pd.DataFrame(isi_distribution)
-        return isi_df
+
+        def compute_hist(isi):
+            if len(isi) == 0:
+                return np.zeros(time_window)
+            return np.histogram(isi[isi < time_window], bins=time_window)[0]
+        
+        isi_distribution = Parallel(n_jobs=-1)(
+            delayed(compute_hist)(isi) for isi in interspike_intervals_object
+        )
+        return pd.DataFrame(isi_distribution)
 
     def compute_autocorrelogram(
         self,
@@ -281,15 +267,9 @@ class Neurocurator:
         # Calculate number of bins
         n_bins = int(np.ceil(max_time / bin_size)) + 1
 
-        # Calculate lags array
-        lags = np.arange(ccg_win[0], ccg_win[1] + bin_size, bin_size)
-        n_lags = len(lags)
-
-        # Initialize results storage
-        all_acgs = np.zeros((len(spike_trains), n_lags))
-
-        # Create binary spike trains (sparse arrays); For each spike train, calculate its autocorrelogram
-        def compute_one_acg(train, n_bins, bin_size, ccg_win, lags, normalize, remove_central_bin, compute_cross_correlation_fn):
+        # Create binary spike trains (sparse arrays)
+        sparse_trains = []
+        for train in spike_trains:
             sparse_train = np.zeros(n_bins, dtype=int)
             if len(train) > 0:
                 # Convert spike times to bin indices
@@ -297,7 +277,17 @@ class Neurocurator:
                 # Ensure indices are within bounds
                 valid_indices = bin_indices[bin_indices < n_bins]
                 sparse_train[valid_indices] = 1
+            sparse_trains.append(sparse_train)
 
+        # Calculate lags array
+        lags = np.arange(ccg_win[0], ccg_win[1] + bin_size, bin_size)
+        n_lags = len(lags)
+
+        # Initialize results storage
+        all_acgs = np.zeros((len(spike_trains), n_lags))
+
+        # For each spike train, calculate its autocorrelogram
+        for i, sparse_train in enumerate(sparse_trains):
             # Use the ccg function to calculate the ACG
             counts, _ = self.compute_cross_correlation(
                 sparse_train, sparse_train, ccg_win=ccg_win, bin_size=bin_size
@@ -313,23 +303,13 @@ class Neurocurator:
             if normalize and np.sum(sparse_train) > 0:
                 counts = counts / np.sum(sparse_train)
 
-            return counts
-
-        all_acgs = Parallel(n_jobs=-1)(
-            delayed(compute_one_acg)(train, n_bins, bin_size, ccg_win, lags, normalize, remove_central_bin, self.compute_cross_correlation)
-            for train in spike_trains
-
-        )
-
-        all_acgs = np.vstack(all_acgs)
-
+            all_acgs[i] = counts
 
         # Create the DataFrame
         column_names = [f"{x:.2f}" for x in lags]
         result_df = pd.DataFrame(all_acgs, columns=column_names)
 
         return result_df
-
 
     def compute_cross_correlation(self, bt1, bt2, ccg_win=[-10, 10], t_lags_shift=0, bin_size=1):
         """
@@ -584,9 +564,3 @@ class Neurocurator:
         self.calculate_firing_rate()
         # Add column with waveform features
         self.compute_all_waveform_features()
-    
-
-    def seconds_2_ms(self, train):
-        for x in range(len(train)):
-            train[x] = train[x] * 1000
-        return train
