@@ -221,7 +221,7 @@ def compute_umap(data):
 
 @st.cache_resource
 def compute_pumap(embedding):
-    model = ort.InferenceSession("Mark_VI_model.onnx")
+    model = ort.InferenceSession("Mark_VII_model.onnx")
     input_name = model.get_inputs()[0].name
 
     # #TODO run model

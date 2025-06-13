@@ -157,23 +157,23 @@ if uploaded_phisiological_data_zip != [] and uploaded_acg_files != [] and upload
     np.save("/home/bruno/ESCI/embeddings_from_csv.npy", embedding)
 
     ##################################################
-    # #PUMAP
-    # #loading the onnx model
-    # output_array = compute_pumap(embedding)
+    #PUMAP
+    #loading the onnx model
+    output_array = compute_pumap(embedding)
 
-    # x = list(range(len(output_array)))
-    # y = output_array[:, 0]
+    x = list(range(len(output_array)))
+    y = output_array[:, 0]
 
-    # source = ColumnDataSource(data=dict(x=x, y=y))
-    # output_array = pd.DataFrame(output_array, columns=['UMAP 1', 'UMAP 2'])
+    source = ColumnDataSource(data=dict(x=x, y=y))
+    output_array = pd.DataFrame(output_array, columns=['UMAP 1', 'UMAP 2'])
     ################################################
 
 
     ##########################################################################
     #normal UMAP
-    embedding = compute_umap(embedding)
-    output_array = np.array(embedding, dtype=np.float32)
-    output_array = pd.DataFrame(output_array, columns=['UMAP 1', 'UMAP 2'])
+    #embedding = compute_umap(embedding)
+    #output_array = np.array(embedding, dtype=np.float32)
+    #output_array = pd.DataFrame(output_array, columns=['UMAP 1', 'UMAP 2'])
     ##########################################################################
 
     if uploaded_file_cell_type is None:
