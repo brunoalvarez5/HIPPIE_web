@@ -177,6 +177,9 @@ if uploaded_phisiological_data_zip != [] and uploaded_acg_files != [] and upload
     ##########################################################################
 
     if uploaded_file_cell_type is None:
+        
+        st.title('Parametric UMAP')
+
         #slider for the clusters
         num_clusters = st.slider("Number of clusters (KMeans)", 2, 10, 5)
 
@@ -226,17 +229,18 @@ if uploaded_phisiological_data_zip != [] and uploaded_acg_files != [] and upload
             
         ############################################
         
-        p = plotter(acg_types, 'ACG_fancy', 'Timepoint', 'Amplitude', option)
+        p = plotter(acg_types, 'ACG with clusters', 'Timepoint', 'Amplitude', option)
         st.bokeh_chart(p, use_container_width=True)
         
-        p = plotter(isi_types, 'ISI distribution_fancy', 'Timepoint', 'Amplitude', option)
+        p = plotter(isi_types, 'ISI distribution with clusters', 'Timepoint', 'Amplitude', option)
         st.bokeh_chart(p, use_container_width=True)
         
-        p = plotter(waveforms_types, 'Waveforms_fancy', 'Timepoint', 'Amplitude', option)
+        p = plotter(waveforms_types, 'Waveforms with clusters', 'Timepoint', 'Amplitude', option)
         st.bokeh_chart(p, use_container_width=True)
     
     elif uploaded_file_cell_type is not None:
         
+        st.title('Parametric UMAP with cell type information')
         output_array['Cluster'] = dataframe_cell_type
 
         #making the chart
@@ -270,13 +274,13 @@ if uploaded_phisiological_data_zip != [] and uploaded_acg_files != [] and upload
         csv_downloader(output_array, acg_types, isi_types, waveforms_types)
 
         # Plotting
-        p = plotter(acg_types, 'ACG_fancy', 'Timepoint', 'Amplitude', option)
+        p = plotter(acg_types, 'ACG with celltypes', 'Timepoint', 'Amplitude', option)
         st.bokeh_chart(p, use_container_width=True)
 
-        p = plotter(isi_types, 'ISI distribution_fancy', 'Timepoint', 'Amplitude', option)
+        p = plotter(isi_types, 'ISI with celltypes', 'Timepoint', 'Amplitude', option)
         st.bokeh_chart(p, use_container_width=True)
 
-        p = plotter(waveforms_types, 'Waveforms_fancy', 'Timepoint', 'Amplitude', option)
+        p = plotter(waveforms_types, 'Waveforms with celltypes', 'Timepoint', 'Amplitude', option)
         st.bokeh_chart(p, use_container_width=True)
 
     
