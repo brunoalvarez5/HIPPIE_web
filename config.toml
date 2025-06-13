@@ -1,1 +1,2 @@
 maxMessageSize = 1024
+maxUploadSize = 1024
