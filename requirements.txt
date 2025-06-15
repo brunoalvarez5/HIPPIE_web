@@ -13,7 +13,7 @@ joblib
 scipy
 multiprocess
 
-# Only include torch if used for resizing (F.interpolate), otherwise remove.
-# torch==2.0.1
-# torchvision==0.15.2
+#include torch used for resizing (F.interpolate)
+torch==2.0.1
+orchvision==0.15.2
 
