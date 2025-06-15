@@ -147,8 +147,6 @@ if uploaded_phisiological_data_zip != [] and uploaded_acg_files != [] and upload
     #also make it numpy arrays because MultiModalEphysDataset expects numPy arrays
     embedding, labels = HIPPIE(pd.DataFrame(resized_acg), pd.DataFrame(resized_isi), pd.DataFrame(resized_waveforms), source)
     
-    #a = HIPPIE(pd.DataFrame(resized_acg), pd.DataFrame(resized_isi), pd.DataFrame(resized_waveforms), source)
-
     ##################################################
     #PUMAP
     #loading the onnx model
