@@ -149,8 +149,6 @@ if uploaded_phisiological_data_zip != [] and uploaded_acg_files != [] and upload
     
     #a = HIPPIE(pd.DataFrame(resized_acg), pd.DataFrame(resized_isi), pd.DataFrame(resized_waveforms), source)
 
-    np.save("/home/bruno/ESCI/embeddings_from_csv.npy", embedding)
-
     ##################################################
     #PUMAP
     #loading the onnx model
