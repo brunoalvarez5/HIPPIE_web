@@ -4,16 +4,11 @@ import numpy as np
 import altair as alt
 import tempfile
 from sklearn.cluster import KMeans
-import time
 import torch.nn.functional as F
-import pytorch_lightning as pl
-from io import StringIO
 from bokeh.models import ColumnDataSource
-import onnxruntime as ort
 import torch
 
-from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, acqm_file_reader, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters, run_hippie_cached
-from neurocurator import Neurocurator
+from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, acqm_file_reader, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters
 
 st.set_page_config(layout="wide", page_title="Neural data visualizer", page_icon=":bar_chart:")
 st.title("Neural data visualizer")
@@ -150,10 +145,10 @@ if uploaded_phisiological_data_zip != [] and uploaded_acg_files != [] and upload
 
     #create a multimodal dataset with all modalities
     #also make it numpy arrays because MultiModalEphysDataset expects numPy arrays
-    embedding, labels = run_hippie_cached(normalized_acg, normalized_isi, normalized_waveforms, source)
+    embedding, labels = HIPPIE(pd.DataFrame(resized_acg), pd.DataFrame(resized_isi), pd.DataFrame(resized_waveforms), source)
     
+    #a = HIPPIE(pd.DataFrame(resized_acg), pd.DataFrame(resized_isi), pd.DataFrame(resized_waveforms), source)
 
-    
     np.save("/home/bruno/ESCI/embeddings_from_csv.npy", embedding)
 
     ##################################################

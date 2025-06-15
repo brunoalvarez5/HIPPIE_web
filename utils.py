@@ -1,6 +1,4 @@
 import numpy as np
-import torch
-from hippie.dataloading import MultiModalEphysDataset, none_safe_collate
 import umap
 from bokeh.plotting import figure
 from bokeh.models import HoverTool
@@ -10,12 +8,9 @@ import io
 import zipfile 
 import pandas as pd 
 import onnxruntime as ort
-from torch.utils.data import DataLoader
-from hippie.model import MultiModalCVAE, MultiModalCVAETrainModule
-import torch.nn.functional as F
 from sklearn.cluster import KMeans
-import multiprocessing
-
+import onnxruntime as ort
+import streamlit as st
 
 
 
@@ -142,6 +137,7 @@ def load_model():
         beta=1.0
     )
 
+
     return model
 
 def drop_nan_rows(*dfs):
@@ -151,67 +147,51 @@ def drop_nan_rows(*dfs):
         mask &= ~(np.isnan(df).any(axis=1) | np.isinf(df).any(axis=1))
     return [df[mask] for df in dfs]
 
-@st.cache_resource
-def run_hippie_cached(acg, isi, waveforms, source):
-    return HIPPIE(acg, isi, waveforms, source)
 
 @st.cache_resource
-def HIPPIE(normalized_acg, normalized_isi, normalized_waveforms, source):
-
-
-    #pass all normalized datasets to numpy
+def HIPPIE(normalized_acg, normalized_isi, normalized_waveforms, source=None):
+    """
+    Compute the embedding using ONNX model (no source input required).
+    """
+    # Pass all normalized datasets to numpy
     normalized_acg_numpy = normalized_acg.values
     normalized_isi_numpy = normalized_isi.values
     normalized_waveforms_numpy = normalized_waveforms.values
 
-    #create a multimodal dataset with all modalities
-    #igualar dimensiones de todas a las default, wf 50, acg y isi 100 interpolate
-    #torch tensor needs it to be 3d or +, thats why we use unsqueeze(1)
-
+    # Remove invalid rows (NaN, Inf)
     valid_mask = (
-    ~np.isnan(normalized_acg_numpy).any(axis=1) & ~np.isinf(normalized_acg_numpy).any(axis=1) &
-    ~np.isnan(normalized_isi_numpy).any(axis=1) & ~np.isinf(normalized_isi_numpy).any(axis=1) &
-    ~np.isnan(normalized_waveforms_numpy).any(axis=1) & ~np.isinf(normalized_waveforms_numpy).any(axis=1)
+        ~np.isnan(normalized_acg_numpy).any(axis=1) & ~np.isinf(normalized_acg_numpy).any(axis=1) &
+        ~np.isnan(normalized_isi_numpy).any(axis=1) & ~np.isinf(normalized_isi_numpy).any(axis=1) &
+        ~np.isnan(normalized_waveforms_numpy).any(axis=1) & ~np.isinf(normalized_waveforms_numpy).any(axis=1)
     )
-
     normalized_acg_numpy = normalized_acg_numpy[valid_mask]
     normalized_isi_numpy = normalized_isi_numpy[valid_mask]
     normalized_waveforms_numpy = normalized_waveforms_numpy[valid_mask]
 
-    source_array = np.full(len(normalized_isi_numpy), source)
+    # ONNX model expects [batch, 1, features]
+    acg = normalized_acg_numpy[:, np.newaxis, :]
+    isi = normalized_isi_numpy[:, np.newaxis, :]
+    wave = normalized_waveforms_numpy[:, np.newaxis, :]
 
+    # Load ONNX model (load once and cache)
+    session = ort.InferenceSession("hippie_model_no_source.onnx")
 
-    wf_tensor = torch.tensor(normalized_waveforms_numpy, dtype=torch.float32).unsqueeze(1)
-    acg_tensor = torch.tensor(normalized_acg_numpy, dtype=torch.float32).unsqueeze(1)
-    isi_tensor = torch.tensor(normalized_isi_numpy, dtype=torch.float32).unsqueeze(1)
-
-    data_dict = {
-        'wave': wf_tensor.squeeze(1).numpy(),
-        'acg': acg_tensor.squeeze(1).numpy(),
-        'isi': isi_tensor.squeeze(1).numpy(),
+    # Prepare inputs (no source required!)
+    inputs = {
+        "wave": wave.astype(np.float32),
+        "isi": isi.astype(np.float32),
+        "acg": acg.astype(np.float32),
     }
 
-    dataset_multi = MultiModalEphysDataset(data_dict, source_array, mode='multi')
+    # Run inference
+    outputs = session.run(None, inputs)
+    embedding = outputs[0]
+    # For consistency, create dummy labels array if you still need labels
+    labels = np.zeros((embedding.shape[0],), dtype=np.int64)
 
-    num_workers =  min(6, multiprocessing.cpu_count())
-
-    #dataloader
-    loader = DataLoader(
-        dataset_multi,
-        batch_size=64,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True,
-        collate_fn=none_safe_collate,
-        drop_last=False
-    )
-
-    #loading the saved model
-    model = load_model()
-
-    embedding, labels = get_embeddings_multimodal(loader, model)
-    
     return embedding, labels
+
+
 
 @st.cache_data
 def compute_umap(data):
