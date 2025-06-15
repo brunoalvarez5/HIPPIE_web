@@ -14,6 +14,6 @@ scipy
 multiprocess
 
 #include torch used for resizing (F.interpolate)
-torch==2.0.1
-orchvision==0.15.2
+#torch==2.0.1
+#orchvision==0.15.2
 
