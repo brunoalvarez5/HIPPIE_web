@@ -8,9 +8,10 @@ import io
 import zipfile 
 import pandas as pd 
 import onnxruntime as ort
-from sklearn.cluster import KMeans
+from sklearn.neighbors import KNeighborsClassifier
 import onnxruntime as ort
 import streamlit as st
+import tarfile
 
 
 
@@ -89,8 +90,8 @@ def plotter(data, title, x_label, y_label, selected_cluster=None, alpha_backgrou
     if selected_cluster is not None:
 
         #separate the column of the cluster
-        cluster_col = data['Cluster']
-        plot_data = data.drop('Cluster', axis=1)
+        cluster_col = data['Classifier']
+        plot_data = data.drop('Classifier', axis=1)
 
         #Create masks for selected vs not selected
         selected_mask = cluster_col == selected_cluster
@@ -213,11 +214,25 @@ def compute_pumap(embedding):
     return output_array
 
 @st.cache_data
-def compue_the_clusters(output_array, num_clusters):
-    kmeans = KMeans(n_clusters=num_clusters, random_state=42)
-    output_array['Cluster'] = kmeans.fit_predict(output_array[['UMAP 1', 'UMAP 2']])
-    #embedding_df_formated = output_array.rename(columns={'Cluster': 'kmeans_types'})
+def compue_the_clusters(output_array, num_neighbors, ct_a):
+    
+    n = len(ct_a)
+    X_labeled = output_array[['UMAP 1', 'UMAP 2']].iloc[:n].values
+    y_labeled = ct_a.iloc[:, 0].values
+    X_all = output_array[['UMAP 1', 'UMAP 2']].values
+
+    # KNN classification for ALL points
+    knn = KNeighborsClassifier(n_neighbors=num_neighbors)
+    knn.fit(X_labeled, y_labeled)
+    output_array['Classifier'] = knn.predict(X_all)
+
     return output_array
+
+    #embedding_df_formated = output_array.rename(columns={'Cluster': 'kmeans_types'})
+    #return output_array
+
+
+
 
 @st.cache_data
 def acqm_file_reader(tmp_file_path):
@@ -276,3 +291,20 @@ def h5_downloader(embeddings, acg, isi, wf):
         file_name="datasets.h5",
         mime="application/octet-stream"
     )
+
+#@st.cache_data
+def load_data_classifier(tar_file_path):
+    
+    csv_data = {}  # To store DataFrames
+
+    with tarfile.open(tar_file_path, 'r:xz') as tar:
+        for member in tar.getmembers():
+            if member.name.endswith('.csv'):
+                # Read file object from tar
+                f = tar.extractfile(member)
+                # Load directly into pandas
+                df = pd.read_csv(f)
+                # Store in dictionary, key is the filename (you can change this)
+                csv_data[member.name] = df
+
+    return csv_data.get('acg.csv'), csv_data.get('isi_dist.csv'), csv_data.get('waveforms.csv'), csv_data.get('celltypes.csv')

@@ -3,17 +3,23 @@ import pandas as pd
 import numpy as np
 import altair as alt
 import tempfile
-from sklearn.cluster import KMeans
+from sklearn.neighbors import KNeighborsClassifier
 import torch.nn.functional as F
 from bokeh.models import ColumnDataSource
 import torch
+import tarfile
 
-from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, acqm_file_reader, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters
+from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, acqm_file_reader, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters, load_data_classifier
+
 
 st.set_page_config(layout="wide", page_title="Neural data visualizer", page_icon=":bar_chart:")
 st.title("Neural data visualizer")
 st.write("Upload your CSV data files and visualize them please")
 
+
+
+#load the curated dataset
+acg_a, isi_a, wf_a, ct_a = load_data_classifier('classifying_data.tar.xz')
 
 with st.container():
     uploaded_file_cell_type = st.file_uploader("upload the cell_type .csv file if you have one")
@@ -26,41 +32,74 @@ with st.container():
         #dataframe_cell_type.iloc[:, 0] = dataframe_cell_type.iloc[:, 0].apply(lambda x: x.decode() if isinstance(x, bytes) else x)
 
 
-uploaded_acg_files = None
-uploaded_isi_files = None  
-uploaded_waveform_files = None
-uploaded_phisiological_data_zip = None
+uploaded_acg_files = []
+uploaded_isi_files = []
+uploaded_waveform_files = []
+uploaded_phisiological_data_zip = []
+nwb_uploaded = []
+token_csv = False
+token_acqm = False
+token_nwb = False
 
 uploading_option = st.radio(
     "Choose input method:",
-    ("Work with csv files", "Work with acqm.zip files")
+    ("Work with csv files", "Work with acqm.zip files", "Work with nwb files")
 )
 
 if uploading_option == "Work with csv files":
     col1, col2, col3 = st.columns(3)
     with col1:
         uploaded_acg_files = st.file_uploader(
-        "Uploade the acg .csv files here", accept_multiple_files=True
-        )
+            "Upload the acg .csv files here", accept_multiple_files=True, type=["csv"]
+        ) or []
     with col2:
         uploaded_isi_files = st.file_uploader(
-        "Uploade the isi .csv files here", accept_multiple_files=True
-        )
+            "Upload the isi .csv files here", accept_multiple_files=True, type=["csv"]
+        ) or []
     with col3:
         uploaded_waveform_files = st.file_uploader(
-        "Uploade the waveform .csv files here", accept_multiple_files=True
-        )
-    uploaded_phisiological_data_zip = "No me uses"
+            "Upload the waveform .csv files here", accept_multiple_files=True, type=["csv"]
+        ) or []
+
+    # tokens become True only when lists are non-empty
+    if len(uploaded_acg_files) > 0 and len(uploaded_isi_files) > 0 and len(uploaded_waveform_files) > 0:
+        token_csv = True
+
+    # make sure the other inputs are clearly "unused"
+    uploaded_phisiological_data_zip = []
+    nwb_uploaded = []
 
 elif uploading_option == "Work with acqm.zip files":
-    uploaded_phisiological_data_zip = st.file_uploader("Upload you acqm.zip files here", accept_multiple_files=True)
-    uploaded_acg_files = "No me uses"
-    uploaded_isi_files = "No me uses"
-    uploaded_waveform_files = "No me uses"
+    uploaded_phisiological_data_zip = st.file_uploader(
+        "Upload your acqm.zip files here", accept_multiple_files=True, type=["zip"]
+    ) or []
 
-if uploaded_phisiological_data_zip != [] and uploaded_acg_files != [] and uploaded_isi_files != [] and uploaded_waveform_files != []:
+    if len(uploaded_phisiological_data_zip) > 0:
+        token_acqm = True
 
-    if uploaded_acg_files == "No me uses" and uploaded_isi_files == "No me uses" and uploaded_waveform_files == "No me uses":
+    uploaded_acg_files = []
+    uploaded_isi_files = []
+    uploaded_waveform_files = []
+    nwb_uploaded = []
+
+elif uploading_option == "Work with nwb files":
+    nwb_uploaded = st.file_uploader(
+        "Upload your nwb files here", type=["nwb"], accept_multiple_files=True
+    ) or []
+
+    if len(nwb_uploaded) > 0:   # <-- use the correct variable
+        token_nwb = True
+
+    uploaded_phisiological_data_zip = []
+    uploaded_acg_files = []
+    uploaded_isi_files = []
+    uploaded_waveform_files = []
+
+
+if token_acqm or token_csv or token_nwb:
+
+
+    if token_acqm == True:
         df_acg = pd.DataFrame()
         df_isi = pd.DataFrame()
         df_waveforms = pd.DataFrame()
@@ -77,7 +116,7 @@ if uploaded_phisiological_data_zip != [] and uploaded_acg_files != [] and upload
             df_isi = pd.concat([df_isi, uploaded_file_isi_dist], ignore_index=True)
             df_waveforms = pd.concat([df_waveforms, uploaded_file_waefroms], ignore_index=True)
     
-    elif uploaded_phisiological_data_zip == "No me uses":
+    elif token_csv == True:
         df_acg = pd.DataFrame()
         df_isi = pd.DataFrame()
         df_waveforms = pd.DataFrame()
@@ -90,7 +129,16 @@ if uploaded_phisiological_data_zip != [] and uploaded_acg_files != [] and upload
 
         for uploaded_file in uploaded_waveform_files:
             df_waveforms = pd.concat([df_waveforms, pd.read_csv(uploaded_file)], ignore_index=True)
+    
+    elif token_nwb :
+        df_acg = pd.DataFrame()
+        df_isi = pd.DataFrame()
+        df_waveforms = pd.DataFrame()
+#################################
 
+
+        
+###################################
     col1, col2, col3 = st.columns(3)
     with col1:
     #acg file
@@ -125,6 +173,26 @@ if uploaded_phisiological_data_zip != [] and uploaded_acg_files != [] and upload
         p = plotter(normalized_waveforms, 'Waveforms', 'Timepoint', 'Amplitude')
         st.bokeh_chart(p, use_container_width=True)
     
+
+        
+    resized_acg_a = F.interpolate(
+        torch.tensor(acg_a.values, dtype=torch.float32).unsqueeze(1),
+        size=100,
+        mode='linear'
+    ).squeeze(1).numpy()
+            
+    resized_isi_a = F.interpolate(
+                torch.tensor(isi_a.values, dtype=torch.float32).unsqueeze(1),
+                size=100,
+                mode='linear'
+            ).squeeze(1).numpy()
+        
+    resized_wf_a = F.interpolate(
+        torch.tensor(wf_a.values, dtype=torch.float32).unsqueeze(1),
+        size=50,
+        mode='linear'
+    ).squeeze(1).numpy()
+
     #make dropdown panel to choose the source for HIPPIE model
     dataset_files = {
         "braingeneers_manual_curation": 1,
@@ -143,9 +211,14 @@ if uploaded_phisiological_data_zip != [] and uploaded_acg_files != [] and upload
 
     #get HIPPIE embedings
 
+    acg_T = pd.concat([pd.DataFrame(resized_acg_a), pd.DataFrame(resized_acg)], ignore_index=True)
+    isi_T = pd.concat([pd.DataFrame(resized_isi_a), pd.DataFrame(resized_isi)], ignore_index=True)
+    wf_T = pd.concat([pd.DataFrame(resized_wf_a), pd.DataFrame(resized_waveforms)], ignore_index=True)
+
+
     #create a multimodal dataset with all modalities
     #also make it numpy arrays because MultiModalEphysDataset expects numPy arrays
-    embedding, labels = HIPPIE(pd.DataFrame(resized_acg), pd.DataFrame(resized_isi), pd.DataFrame(resized_waveforms), source)
+    embedding, labels = HIPPIE(pd.DataFrame(acg_T), pd.DataFrame(isi_T), pd.DataFrame(wf_T), source)
     
     ##################################################
     #PUMAP
@@ -172,16 +245,16 @@ if uploaded_phisiological_data_zip != [] and uploaded_acg_files != [] and upload
         st.title('Parametric UMAP')
 
         #slider for the clusters
-        num_clusters = st.slider("Number of clusters (KMeans)", 2, 10, 5)
+        num_neighbors = st.slider("Number of neighbors (Knn)", 2, 10, 5)
 
         #computing the kmeans clustering
-        output_array = compue_the_clusters(output_array, num_clusters)
+        output_array = compue_the_clusters(output_array, num_neighbors, ct_a)
 
         #making the chart
         chart = alt.Chart(output_array).mark_circle(size=30).encode(
             x='UMAP 1',
             y='UMAP 2',
-            color='Cluster:N',
+            color='Classifier:N',
         ).properties(
             width=800,
             height=800
@@ -192,18 +265,18 @@ if uploaded_phisiological_data_zip != [] and uploaded_acg_files != [] and upload
         #here goes the choosing clusters thing
         option = st.selectbox(
             'Select a cluster to see the corresponding data points',
-            options=output_array['Cluster'].unique()
+            options=output_array['Classifier'].unique()
         )
         st.write(f"You selected cluster {option}")
 
-        selected = output_array[output_array['Cluster'] == option]
-        acg_types = pd.concat([normalized_acg, output_array['Cluster']], axis=1)
-        isi_types = pd.concat([normalized_isi, output_array['Cluster']], axis=1)
-        waveforms_types = pd.concat([normalized_waveforms, output_array['Cluster']], axis=1)
+        selected = output_array[output_array['Classifier'] == option]
+        acg_types = pd.concat([normalized_acg, output_array['Classifier']], axis=1)
+        isi_types = pd.concat([normalized_isi, output_array['Classifier']], axis=1)
+        waveforms_types = pd.concat([normalized_waveforms, output_array['Classifier']], axis=1)
 
-        sel_acg_types = acg_types[acg_types['Cluster'] == option]
-        sel_isi_types = isi_types[isi_types['Cluster'] == option]
-        sel_waveforms_types = waveforms_types[waveforms_types['Cluster'] == option]
+        sel_acg_types = acg_types[acg_types['Classifier'] == option]
+        sel_isi_types = isi_types[isi_types['Classifier'] == option]
+        sel_waveforms_types = waveforms_types[waveforms_types['Classifier'] == option]
 
 
         ############################################
@@ -286,27 +359,28 @@ if uploaded_phisiological_data_zip != [] and uploaded_acg_files != [] and upload
     cluster_labels = []
 
     if uploaded_file_cell_type is None:
-        for x in range(num_clusters):
-            acg_mean_list.append(np.mean(acg_types[acg_types['Cluster']==x], axis=0))
-            isi_mean_list.append(np.mean(isi_types[isi_types['Cluster']==x], axis=0))
-            wf_mean_list.append(np.mean(waveforms_types[waveforms_types['Cluster']==x], axis=0))
-            
+        for label in acg_types['Classifier'].unique():
+            acg_mean_list.append(np.mean(acg_types[acg_types['Classifier'] == label].drop(columns='Classifier'), axis=0))
+            isi_mean_list.append(np.mean(isi_types[isi_types['Classifier'] == label].drop(columns='Classifier'), axis=0))
+            wf_mean_list.append(np.mean(waveforms_types[waveforms_types['Classifier'] == label].drop(columns='Classifier'), axis=0))
+            cluster_labels.append(label)
+
 
     elif uploaded_file_cell_type is not None:
-        for x in output_array['Cluster'].unique():
-            acg_mean_list.append(np.mean(acg_types[acg_types['Cluster']==x].drop(columns='Cluster'), axis=0))
-            isi_mean_list.append(np.mean(isi_types[isi_types['Cluster']==x].drop(columns='Cluster'), axis=0))
-            wf_mean_list.append(np.mean(waveforms_types[waveforms_types['Cluster']==x].drop(columns='Cluster'), axis=0))
+        for x in output_array['Classifier'].unique():
+            acg_mean_list.append(np.mean(acg_types[acg_types['Classifier']==x].drop(columns='Classifier'), axis=0))
+            isi_mean_list.append(np.mean(isi_types[isi_types['Classifier']==x].drop(columns='Classifier'), axis=0))
+            wf_mean_list.append(np.mean(waveforms_types[waveforms_types['Classifier']==x].drop(columns='Classifier'), axis=0))
 
             cluster_labels.append(x)
         
-        acg_mean_list = pd.DataFrame(acg_mean_list)
-        isi_mean_list = pd.DataFrame(isi_mean_list)
-        wf_mean_list = pd.DataFrame(wf_mean_list)
+    acg_mean_list = pd.DataFrame(acg_mean_list)
+    isi_mean_list = pd.DataFrame(isi_mean_list)
+    wf_mean_list = pd.DataFrame(wf_mean_list)
 
-        acg_mean_list['Cluster'] = cluster_labels
-        isi_mean_list['Cluster'] = cluster_labels
-        wf_mean_list['Cluster'] = cluster_labels
+    acg_mean_list['Classifier'] = cluster_labels
+    isi_mean_list['Classifier'] = cluster_labels
+    wf_mean_list['Classifier'] = cluster_labels
 
 
 

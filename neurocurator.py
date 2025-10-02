@@ -9,6 +9,8 @@ import torch
 
 from joblib import Parallel, delayed
 
+from pynwb import NWBHDF5IO
+
 
 class Neurocurator:
     def __init__(self):
@@ -564,3 +566,85 @@ class Neurocurator:
         self.calculate_firing_rate()
         # Add column with waveform features
         self.compute_all_waveform_features()
+    
+    def load_nwb_spike_times(self, nwb_path):
+ 
+        
+        with NWBHDF5IO(nwb_path, "r", load_namespaces=True) as io:
+            nwb = io.read()
+
+            #PyNWB exposes per-unit spike times via get_unit_spike_times(i) in seconds
+            spikes_ms = []
+            n_units = len(nwb.units.id.data)
+            for i in range(n_units):
+                st_sec = nwb.units.get_unit_spike_times(i)  #seconds (ragged vector)
+                st_ms = np.asarray(st_sec, dtype=float) * 1000.0
+                spikes_ms.append(st_ms)
+
+        #fill object; downstream ISI/ACG code can run as-is
+        self.spike_times_train = spikes_ms
+
+    def load_nwb_waveforms(self, nwb_path, n_datapoints=50, candidates=("waveform_mean", "spike_waveforms")):
+        #Candidates is the name of the columns to look for first
+
+        #this functionensures all waveforms have the same number of points n, which is 50
+        #since the other functions expect 50
+        #if waveform is shorter, it pads with zeros at the end
+        #if waveform is longer, it cuts around the minimum point
+        #
+        def cut_or_pad_to_n(wf, n=50):
+            wf = np.asarray(wf, float).flatten()
+            if wf.size == 0:
+                return np.zeros(n, float)
+            mid = int(np.argmin(wf))
+            left = int(n * 2/5)
+            right = n - left
+            lo = max(0, mid - left)
+            hi = min(wf.size, lo + n)
+            seg = wf[lo:hi]
+            if seg.size < n:
+                seg = np.pad(seg, (0, n - seg.size))
+            return seg
+
+        #the function starts here by opening the nwb file
+        with NWBHDF5IO(nwb_path, "r", load_namespaces=True) as io:
+            nwb = io.read()
+            #check if there is indeed a units table from where we can extract waveforms
+            if nwb.units is None:
+                self.waveforms = pd.DataFrame()
+                return self.waveforms
+
+            #check which of the candidate columns exists to use that one
+            cols = set(nwb.units.colnames)
+            key = None
+            for k in candidates:
+                if k in cols:
+                    key = k
+                    break
+
+            #here it loops through the units id there is no waveform column it fills everything with zeros and terminates
+            #if we have spike waveforms it takes all points and averages them (uses cut and pad function)
+            #if it has waveform_mean it just uses that as the vector
+            wf_rows = []
+            n_units = len(nwb.units.id.data)
+            for i in range(n_units):
+                if key is None:
+                    #no waveform column inside of units units = fills all with zeros
+                    wf_rows.append(np.zeros(n_datapoints))
+                    continue
+
+                if key == "spike_waveforms":
+                    #here it averages all the points and adds it
+                    wfs = nwb.units.get_unit_spike_waveforms(i)
+                    if wfs is None or len(wfs) == 0:
+                        wf_rows.append(np.zeros(n_datapoints))
+                    else:
+                        mean_wf = np.mean(np.asarray(wfs, float), axis=0)
+                        wf_rows.append(cut_or_pad_to_n(mean_wf, n=n_datapoints))
+                else:
+                    # if it already has the averge it just adds it
+                    row = np.asarray(nwb.units[key][i], float)
+                    wf_rows.append(cut_or_pad_to_n(row, n=n_datapoints))
+        #define the universal waveform dataframe with the computed rows
+        self.waveforms = pd.DataFrame(wf_rows)
+        return self.waveforms
