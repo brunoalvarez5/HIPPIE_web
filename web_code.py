@@ -8,6 +8,8 @@ import torch.nn.functional as F
 from bokeh.models import ColumnDataSource
 import torch
 import tarfile
+from neurocurator import Neurocurator
+import os
 
 from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, acqm_file_reader, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters, load_data_classifier
 
@@ -37,13 +39,15 @@ uploaded_isi_files = []
 uploaded_waveform_files = []
 uploaded_phisiological_data_zip = []
 nwb_uploaded = []
+phy_uploaded = []
 token_csv = False
 token_acqm = False
 token_nwb = False
+token_phy = False
 
 uploading_option = st.radio(
     "Choose input method:",
-    ("Work with csv files", "Work with acqm.zip files", "Work with nwb files")
+    ("Work with csv files", "Work with acqm.zip files", "Work with nwb files", "Work with phy files")
 )
 
 if uploading_option == "Work with csv files":
@@ -87,7 +91,7 @@ elif uploading_option == "Work with nwb files":
         "Upload your nwb files here", type=["nwb"], accept_multiple_files=True
     ) or []
 
-    if len(nwb_uploaded) > 0:   # <-- use the correct variable
+    if len(nwb_uploaded) > 0:
         token_nwb = True
 
     uploaded_phisiological_data_zip = []
@@ -95,8 +99,21 @@ elif uploading_option == "Work with nwb files":
     uploaded_isi_files = []
     uploaded_waveform_files = []
 
+elif uploading_option == "Work with phy files":
+    phy_uploaded = st.file_uploader(
+        "Upload your phy files here", type=["zip"], accept_multiple_files=True
+    ) or []
 
-if token_acqm or token_csv or token_nwb:
+    if len(phy_uploaded) > 0:
+        token_phy = True
+
+    uploaded_phisiological_data_zip = []
+    uploaded_acg_files = []
+    uploaded_isi_files = []
+    uploaded_waveform_files = []
+
+
+if token_acqm or token_csv or token_nwb or token_phy:
 
 
     if token_acqm == True:
@@ -130,14 +147,56 @@ if token_acqm or token_csv or token_nwb:
         for uploaded_file in uploaded_waveform_files:
             df_waveforms = pd.concat([df_waveforms, pd.read_csv(uploaded_file)], ignore_index=True)
     
-    elif token_nwb :
+    elif token_nwb == True :
         df_acg = pd.DataFrame()
         df_isi = pd.DataFrame()
         df_waveforms = pd.DataFrame()
+
+        for uploaded_file in nwb_uploaded:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.nwb') as tmp_file:
+                tmp_file.write(uploaded_file.read())
+                tmp_file_path = tmp_file.name
+
+            nc = Neurocurator()
+
+            nc.load_nwb_spike_times(tmp_file_path)                            # → self.spike_times_train (en ms)
+            nc.load_nwb_waveforms(tmp_file_path, n_datapoints=50,             # → self.waveforms (50 puntos)
+            candidates=("waveform_mean", "spike_waveforms"))
+
+            # Calcular ISI (0–100 ms) y ACG (±100 ms, bin=1 ms) con tus funciones ya existentes
+            nc.isi_distribution = nc.compute_isi_distribution(time_window=100)
+            nc.acgs = nc.compute_autocorrelogram(nc.spike_times_train)
+
+            df_acg = pd.concat([df_acg, nc.acgs], ignore_index=True)
+            df_isi = pd.concat([df_isi, nc.isi_distribution], ignore_index=True)
+            df_waveforms = pd.concat([df_waveforms, nc.waveforms], ignore_index=True)
+
+
+    
+    elif token_phy == True:
+        df_acg = pd.DataFrame()
+        df_isi = pd.DataFrame()
+        df_waveforms = pd.DataFrame()
+
+        for uploaded_file in phy_uploaded:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
+                tmp_file.write(uploaded_file.read())
+                tmp_file_path = tmp_file.name
+
+            nc = Neurocurator()
+            nc.load_phy_curated(tmp_file_path)
+            
+            df_acg = pd.concat([df_acg, nc.acgs], ignore_index=True)
+            df_isi = pd.concat([df_isi, nc.isi_distribution], ignore_index=True)
+            df_waveforms = pd.concat([df_waveforms, nc.waveforms], ignore_index=True)
+
+
+
 #################################
 
 
-        
+
+
 ###################################
     col1, col2, col3 = st.columns(3)
     with col1:

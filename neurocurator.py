@@ -10,6 +10,11 @@ import torch
 from joblib import Parallel, delayed
 
 from pynwb import NWBHDF5IO
+import io
+
+import os
+import re
+from collections import Counter
 
 
 class Neurocurator:
@@ -648,3 +653,155 @@ class Neurocurator:
         #define the universal waveform dataframe with the computed rows
         self.waveforms = pd.DataFrame(wf_rows)
         return self.waveforms
+    
+
+    def load_phy_curated(self, zip_path, n_datapoints=50, window_ms=100, bin_ms=1, good_only=True):
+
+        #load .npy straight from the zip
+        def _np_from_zip(zf, name):
+            with zf.open(name) as f:
+                return np.load(io.BytesIO(f.read()), allow_pickle=True)
+
+        #read and decode a text file (e.g., params.py)
+        def _text_from_zip(zf, name):
+            with zf.open(name) as f:
+                return f.read().decode("utf-8", errors="ignore")
+
+        #map basename -> full path (handles nested dirs)
+        def _index_by_basename(zf):
+            m = {}
+            for p in zf.namelist():
+                base = p.split("/")[-1]
+                if base not in m:
+                    m[base] = p
+            return m
+
+        #center on trough, cut/pad to fixed length
+        def _cut_or_pad_to_n(wf, n=50):
+            wf = np.asarray(wf, float).flatten()
+            if wf.size == 0:
+                return np.zeros(n, float)
+            mid = int(np.argmin(wf))
+            left = int(n * 2/5)
+            lo = max(0, mid - left)
+            hi = min(wf.size, lo + n)
+            seg = wf[lo:hi]
+            if seg.size < n:
+                seg = np.pad(seg, (0, n - seg.size))
+            return seg
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            by_base = _index_by_basename(zf)
+            #fail if one of the data is missing
+            REQUIRED = {"spike_times.npy", "spike_clusters.npy", "templates.npy", "params.py"}
+            missing = [r for r in REQUIRED if r not in by_base]
+            if missing:
+                raise ValueError(f"Missing required files {missing} inside {zip_path}")
+
+            #load each one of the datasets into a variable
+            
+            spike_times = _np_from_zip(zf, by_base["spike_times.npy"])
+            spike_clusters = _np_from_zip(zf, by_base["spike_clusters.npy"])
+            templates = _np_from_zip(zf, by_base["templates.npy"])  # [nTemplates, nTime, nChannels]
+            params_txt = _text_from_zip(zf, by_base["params.py"])
+
+            m = re.search(r"sample_rate\s*=\s*([0-9.]+)", params_txt)
+            if not m:
+                raise ValueError("Could not parse sample_rate from params.py")
+            sample_rate = float(m.group(1))  # Hz
+
+            channel_map = _np_from_zip(zf, by_base["channel_map.npy"]) if "channel_map.npy" in by_base else None
+            channel_positions = _np_from_zip(zf, by_base["channel_positions.npy"]) if "channel_positions.npy" in by_base else None
+            spike_templates = _np_from_zip(zf, by_base["spike_templates.npy"]) if "spike_templates.npy" in by_base else None
+
+            #'good' filter from cluster_info.tsv
+            allow_cids = None
+            if "cluster_info.tsv" in by_base and good_only:
+                import csv
+                good_ids = set()
+                with zf.open(by_base["cluster_info.tsv"]) as f:
+                    text = f.read().decode("utf-8", errors="ignore").splitlines()
+                    rdr = csv.DictReader(text, delimiter="\t")
+                    for row in rdr:
+                        grp = (row.get("group") or row.get("KSLabel") or "").strip().lower()
+                        if grp == "good":
+                            try:
+                                good_ids.add(int(row["cluster_id"]))
+                            except Exception:
+                                pass
+                if good_ids:
+                    allow_cids = good_ids
+
+            #creating per-unit arrays
+            unique_c = np.unique(spike_clusters)
+            unit_times_ms = []
+            wf_rows = []
+            xs, ys = [], []
+
+            #main code, iterate iver the units
+            for cid in unique_c:
+                if allow_cids is not None and int(cid) not in allow_cids:
+                    continue
+
+                idx = np.where(spike_clusters == cid)[0]
+                if idx.size == 0:
+                    continue
+
+                #change to milliseconds
+                times_ms = (spike_times[idx].astype(np.float64) / sample_rate) * 1000.0
+                unit_times_ms.append(times_ms)
+
+                #use dominant template for this unit
+                #(robust to (n,1) shapes / object dtype)
+                #pickong the waaveform
+                if spike_templates is not None:
+                    vals = np.asarray(spike_templates)[idx]
+                    vals = np.array(vals, dtype=np.int64).reshape(-1)   #flatten + ensure ints
+                    if vals.size > 0:
+                        tmpl = int(np.bincount(vals).argmax())          #mode of template IDs
+                    else:
+                        tmpl = 0
+                else:
+                    tmpl = int(cid) if 0 <= int(cid) < templates.shape[0] else 0
+
+                #clamp in case tmpl is out of range
+                if not (0 <= int(tmpl) < templates.shape[0]):
+                    tmpl = 0
+
+                #best channel = deepest trough
+                tmpl_wf = templates[tmpl]  # [time, channels]
+                best_ch = int(np.argmin(np.min(tmpl_wf, axis=0)))
+                ch_wf = tmpl_wf[:, best_ch]
+                seg = _cut_or_pad_to_n(ch_wf, n=n_datapoints)
+
+                #map to probe channel and (x,y) if available
+                probe_ch = best_ch
+                if channel_map is not None and best_ch < channel_map.size:
+                    probe_ch = int(channel_map[best_ch])
+                if channel_positions is not None and 0 <= probe_ch < channel_positions.shape[0]:
+                    xs.append(float(channel_positions[probe_ch, 0]))
+                    ys.append(float(channel_positions[probe_ch, 1]))
+                else:
+                    xs.append(np.nan); ys.append(np.nan)
+
+                wf_rows.append(seg)
+
+        #set attributes
+        self.waveforms = pd.DataFrame(wf_rows)
+        self.spike_times_train = [np.asarray(st, float) for st in unit_times_ms]
+        self.metadata_obs = pd.DataFrame({"x": xs, "y": ys})
+        self.sampling_rate = sample_rate
+
+        #compute isi and acg with the already existing methods
+        self.isi_distribution = self.compute_isi_distribution(time_window=window_ms)
+        self.acgs = self.compute_autocorrelogram(
+            self.spike_times_train,
+            bin_size_ms=bin_ms,
+            window_size_ms=window_ms,
+            normalize=False,
+            remove_central_bin=True,
+        )
+
+        self.validate_data_integrity()
+        return
+
