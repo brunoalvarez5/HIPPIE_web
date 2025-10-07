@@ -1,51 +1,45 @@
-# Streamlit web dependencies for hippie_web
-
-
-# Ensure wheels (no source builds) for the heaviest packages
+# Prefer wheels for heavy libs
 --only-binary=numpy,scipy
 
-streamlit==1.39.0
-rich<15
-pandas==1.5.3
+# Streamlit (rich optional since 1.43)
+streamlit==1.43.0
+
+# Core stack
 numpy==1.23.5
-matplotlib==3.7.1
-scikit-learn==1.2.2
-umap-learn==0.5.4
-bokeh==2.4.3
-altair==5.0.1
-onnxruntime==1.15.1
-joblib==1.3.2
 scipy==1.13.1
-multiprocess
+pandas==1.5.3
+scikit-learn==1.2.2
+
+# UMAP stack (wheel-friendly on py39)
+umap-learn==0.5.4
 pynndescent==0.5.10
-pydeck==0.9.1
-
-# ---------- UMAP stack (compatible pins that have wheels) ----------
 numba==0.56.4
-llcmlite=0.39.1
+llvmlite==0.39.1
 
-
-
-#include torch used for resizing (F.interpolate)
+# DL / inference
 torch==2.0.1
 torchvision==0.15.2
+onnxruntime==1.15.1
 
-pynwb>=3.1.1  # newer PyNWB is friendlier w.r.t. cache dirs
-hdmf>=3.14
-h5py>=3.10
+# Viz
+matplotlib==3.7.1
+bokeh==2.4.3
+altair==5.0.1
+pydeck==0.9.1
 
-
-
-
-
-
-
-
+# IO / utils
 pyarrow==12.0.1
+h5py>=3.10
+hdmf>=3.14
+pynwb>=3.1.1
+joblib==1.3.2
 threadpoolctl==3.1.0
 tqdm==4.67.1
 pillow==10.4.0
 requests==2.32.5
 toml==0.10.2
 validators==0.35.0
+
+# Optional
+multiprocess
 
