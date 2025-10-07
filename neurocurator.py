@@ -9,7 +9,6 @@ import torch
 
 from joblib import Parallel, delayed
 
-from pynwb import NWBHDF5IO
 import io
 
 import os
@@ -574,7 +573,8 @@ class Neurocurator:
     
     def load_nwb_spike_times(self, nwb_path):
  
-        
+        from pynwb import NWBHDF5IO #lazy import 
+
         with NWBHDF5IO(nwb_path, "r", load_namespaces=True) as io:
             nwb = io.read()
 
@@ -590,6 +590,9 @@ class Neurocurator:
         self.spike_times_train = spikes_ms
 
     def load_nwb_waveforms(self, nwb_path, n_datapoints=50, candidates=("waveform_mean", "spike_waveforms")):
+        
+        from pynwb import NWBHDF5IO #lazy import
+        
         #Candidates is the name of the columns to look for first
 
         #this functionensures all waveforms have the same number of points n, which is 50

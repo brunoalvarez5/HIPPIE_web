@@ -1,3 +1,7 @@
+import os
+os.environ["PYNWB_NO_CACHE_DIR"] = "1"          #disable typemap caching
+os.environ.setdefault("PYNWB_CACHE_DIR", "/tmp/pynwb_cache")  #just in case
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,7 +13,6 @@ from bokeh.models import ColumnDataSource
 import torch
 import tarfile
 from neurocurator import Neurocurator
-import os
 
 from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, acqm_file_reader, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters, load_data_classifier
 
