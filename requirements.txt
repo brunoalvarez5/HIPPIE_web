@@ -2,7 +2,7 @@
 streamlit==1.43.0
 
 # Core stack
-numpy==1.23.5
+numpy==1.26.4
 scipy==1.13.1
 pandas==1.5.3
 scikit-learn==1.2.2
@@ -10,8 +10,8 @@ scikit-learn==1.2.2
 # UMAP stack (py39-compatible)
 umap-learn==0.5.4
 pynndescent==0.5.10
-numba==0.56.4
-llvmlite==0.39.1
+numba==0.58.1
+llvmlite==0.41.1
 
 # DL / inference
 torch==2.0.1
