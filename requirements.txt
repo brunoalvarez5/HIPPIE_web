@@ -17,3 +17,6 @@ multiprocess
 torch==2.0.1
 torchvision==0.15.2
 
+pynwb>=2.6
+h5py>=3.10
+hdmf>=3.14
