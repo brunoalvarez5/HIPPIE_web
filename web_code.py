@@ -14,7 +14,7 @@ import torch
 import tarfile
 from neurocurator import Neurocurator
 
-from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, acqm_file_reader, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters, load_data_classifier
+from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, acqm_file_reader, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters_kmeans, load_data_classifier, compue_the_clusters_labeled
 
 
 st.set_page_config(layout="wide", page_title="Neural data visualizer", page_icon=":bar_chart:")
@@ -237,33 +237,37 @@ if token_acqm or token_csv or token_nwb or token_phy:
     
 
         
-    resized_acg_a = F.interpolate(
-        torch.tensor(acg_a.values, dtype=torch.float32).unsqueeze(1),
-        size=100,
-        mode='linear'
-    ).squeeze(1).numpy()
-            
-    resized_isi_a = F.interpolate(
-                torch.tensor(isi_a.values, dtype=torch.float32).unsqueeze(1),
-                size=100,
-                mode='linear'
-            ).squeeze(1).numpy()
-        
-    resized_wf_a = F.interpolate(
-        torch.tensor(wf_a.values, dtype=torch.float32).unsqueeze(1),
-        size=50,
-        mode='linear'
-    ).squeeze(1).numpy()
+    #resized_acg_a = F.interpolate(
+    #    torch.tensor(acg_a.values, dtype=torch.float32).unsqueeze(1),
+    #    size=100,
+    #    mode='linear'
+    #).squeeze(1).numpy()
+    #        
+    #resized_isi_a = F.interpolate(
+    #            torch.tensor(isi_a.values, dtype=torch.float32).unsqueeze(1),
+    #            size=100,
+    #            mode='linear'
+    #        ).squeeze(1).numpy()
+    #    
+    #resized_wf_a = F.interpolate(
+    #    torch.tensor(wf_a.values, dtype=torch.float32).unsqueeze(1),
+    #    size=50,
+    #    mode='linear'
+    #).squeeze(1).numpy()
 
     #make dropdown panel to choose the source for HIPPIE model
     dataset_files = {
-        "braingeneers_manual_curation": 1,
-        "cellexplorer_area": 2,
-        "hausser": 3,
-        "hull": 4,
-        "lisberger": 5,
-        "mouse_organoids_cell_line": 6
-    }
+            "braingeneers_manual_curation": 'Maxwell Biosystems Chip',
+            "cellexplorer_area": 'Neuropixel 1.0',
+            "cellexplorer_cell_type": 'Neuropixel 1.0',
+            "hausser_cell_type": 'Neuropixel 1.0',
+            "hull_cell_type": 'Neuropixel 1.0',
+            "lissberger_labeled_cell_type": 'Extracellular recording Macaque',
+            "mouse_organoids_cell_line": 'Maxwell Biosystems chip',
+            "mouse_slice_area": 'Maxwell Biosystems Chip',
+            "allen_s_n_a_subset_no_superregions": 'Neuropixel 1.0'
+        }
+    
     source = st.selectbox(
             'Select how your data was obtained',
             options=dataset_files.keys(),
@@ -273,9 +277,13 @@ if token_acqm or token_csv or token_nwb or token_phy:
 
     #get HIPPIE embedings
 
-    acg_T = pd.concat([pd.DataFrame(resized_acg_a), pd.DataFrame(resized_acg)], ignore_index=True)
-    isi_T = pd.concat([pd.DataFrame(resized_isi_a), pd.DataFrame(resized_isi)], ignore_index=True)
-    wf_T = pd.concat([pd.DataFrame(resized_wf_a), pd.DataFrame(resized_waveforms)], ignore_index=True)
+    #THIS USED TO JOIN THE UNDERNEATH DATASET TO ADD CELLTYPES WHEN NO FILE PROVIDED
+    #acg_T = pd.concat([pd.DataFrame(resized_acg_a), pd.DataFrame(resized_acg)], ignore_index=True)
+    #isi_T = pd.concat([pd.DataFrame(resized_isi_a), pd.DataFrame(resized_isi)], ignore_index=True)
+    #wf_T = pd.concat([pd.DataFrame(resized_wf_a), pd.DataFrame(resized_waveforms)], ignore_index=True)
+    acg_T = resized_acg
+    isi_T = resized_isi
+    wf_T = resized_waveforms
 
 
     #create a multimodal dataset with all modalities
@@ -310,7 +318,7 @@ if token_acqm or token_csv or token_nwb or token_phy:
         num_neighbors = st.slider("Number of neighbors (Knn)", 2, 10, 5)
 
         #computing the kmeans clustering
-        output_array = compue_the_clusters(output_array, num_neighbors, ct_a)
+        output_array = compue_the_clusters_kmeans(output_array, num_neighbors)
 
         #making the chart
         chart = alt.Chart(output_array).mark_circle(size=30).encode(

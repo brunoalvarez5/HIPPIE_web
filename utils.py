@@ -13,6 +13,7 @@ import onnxruntime as ort
 import streamlit as st
 import tarfile
 import torch
+from sklearn.cluster import KMeans
 
 
 
@@ -217,7 +218,7 @@ def compute_pumap(embedding):
 
 
 @st.cache_data
-def compue_the_clusters(output_array, num_neighbors, ct_a):
+def compue_the_clusters_labeled(output_array, num_neighbors, ct_a):
     
     n = len(ct_a)
     X_labeled = output_array[['UMAP 1', 'UMAP 2']].iloc[:n].values
@@ -234,7 +235,17 @@ def compue_the_clusters(output_array, num_neighbors, ct_a):
     #embedding_df_formated = output_array.rename(columns={'Cluster': 'kmeans_types'})
     #return output_array
 
+@st.cache_data
+def compue_the_clusters_kmeans(output_array, num_neighbors):
+    
+    # Use UMAP coordinates of ALL points
+    X_all = output_array[['UMAP 1', 'UMAP 2']].values
 
+    # KMeans clustering for ALL points
+    kmeans = KMeans(n_clusters=num_neighbors, n_init='auto', random_state=0)
+    output_array['Classifier'] = kmeans.fit_predict(X_all)
+
+    return output_array
 
 
 @st.cache_data
