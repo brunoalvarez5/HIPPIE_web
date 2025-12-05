@@ -14,6 +14,7 @@ import streamlit as st
 import tarfile
 import torch
 from sklearn.cluster import KMeans
+import hdbscan
 
 
 
@@ -100,13 +101,13 @@ def plotter(data, title, x_label, y_label, selected_cluster=None, alpha_backgrou
 
         #plot not selected clusters first so they go to the background
         if (~selected_mask).any():
-            plot_lines(p, plot_data[~selected_mask], color="yellow", alpha=alpha_background, line_width=line_width_background)
+            plot_lines(p, plot_data[~selected_mask], color="#FFB000", alpha=alpha_background, line_width=line_width_background)
         
         if selected_mask.any():
-            plot_lines(p, plot_data[selected_mask], color="red", alpha=alpha_upfront, line_width=line_width_upfront)
+            plot_lines(p, plot_data[selected_mask], color="#00D8FF", alpha=alpha_upfront, line_width=line_width_upfront)
     else:
         #0.3 1
-        plot_lines(p, data, color="red", alpha=0.8, line_width=0.1)
+        plot_lines(p, data, color="#00D8FF", alpha=0.8, line_width=0.1)
 
     return p
 
@@ -177,13 +178,37 @@ def HIPPIE(normalized_acg, normalized_isi, normalized_waveforms, source=None):
     wave = normalized_waveforms_numpy[:, np.newaxis, :]
 
     # Load ONNX model (load once and cache)
-    session = ort.InferenceSession("hippie_model_no_source.onnx")
+    session = ort.InferenceSession("hippie_model_epoch=9-step=60.onnx")
+
+# ---- 4. Fix ACG length: model expects 200 ----
+    expected_acg_len = 200
+    current_acg_len = acg.shape[2]
+
+    if current_acg_len != expected_acg_len:
+        # Upsample along the last axis (simple linear interpolation)
+        N = acg.shape[0]
+        x_old = np.linspace(0.0, 1.0, current_acg_len)
+        x_new = np.linspace(0.0, 1.0, expected_acg_len)
+        acg_reshaped = np.empty((N, 1, expected_acg_len), dtype=np.float32)
+        for i in range(N):
+            # interpolate the 1D curve acg[i, 0, :]
+            acg_reshaped[i, 0, :] = np.interp(x_new, x_old, acg[i, 0, :])
+        acg = acg_reshaped
+
+    batch_size = acg.shape[0]
+
+
+    #make dummy labels
+    source_labels = np.zeros((acg.shape[0],), dtype=np.int64)
+    class_labels = np.zeros((acg.shape[0],), dtype=np.int64)
 
     # Prepare inputs (no source required!)
     inputs = {
         "wave": wave.astype(np.float32),
         "isi": isi.astype(np.float32),
         "acg": acg.astype(np.float32),
+        "source_labels": source_labels,
+        "class_labels": class_labels,
     }
 
     # Run inference
@@ -322,3 +347,45 @@ def load_data_classifier(tar_file_path):
                 csv_data[member.name] = df
 
     return csv_data.get('acg.csv'), csv_data.get('isi_dist.csv'), csv_data.get('waveforms.csv'), csv_data.get('celltypes.csv')
+
+
+@st.cache_data
+def compue_the_clusters_hdbscan(output_array: pd.DataFrame, min_cluster_size: int, min_samples: int,) -> pd.DataFrame:
+    """
+    Cluster points in UMAP space using HDBSCAN.
+
+    Parameters
+    ----------
+    output_array : pd.DataFrame
+        Must contain columns 'UMAP 1' and 'UMAP 2'.
+    min_cluster_size : int
+        Smallest allowed cluster size. Higher -> fewer, more stable clusters.
+    min_samples : int
+        Density strictness. Higher -> only very dense regions form clusters.
+
+    Returns
+    -------
+    pd.DataFrame
+        Same as input but with:
+            'Classifier'      : cluster labels (-1 = noise)
+            'Cluster_prob'    : membership probability per point
+    """
+    #use UMAP coordinates of ALL points
+    X_all = output_array[['UMAP 1', 'UMAP 2']].values
+
+    #HDBSCAN clustering
+    clusterer = hdbscan.HDBSCAN(
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        cluster_selection_method='eom',
+        #metric='euclidean'  # default; uncomment if you want to be explicit
+    )
+
+    labels = clusterer.fit_predict(X_all)          #-1 = noise
+    probs = clusterer.probabilities_              #membership strength [0,1]
+
+    result = output_array.copy()
+    result['Classifier'] = labels
+    result['Cluster_prob'] = probs
+
+    return result

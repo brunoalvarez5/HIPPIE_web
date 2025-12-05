@@ -14,10 +14,197 @@ import torch
 import tarfile
 from neurocurator import Neurocurator
 
-from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, acqm_file_reader, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters_kmeans, load_data_classifier, compue_the_clusters_labeled
+from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, acqm_file_reader, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters_kmeans, load_data_classifier, compue_the_clusters_labeled, compue_the_clusters_hdbscan
+
 
 
 st.set_page_config(layout="wide", page_title="Neural data visualizer", page_icon=":bar_chart:")
+
+st.markdown("""
+<style>
+
+/* FULL APP BACKGROUND */
+.stApp, html, body, [class*="css"] {
+    background-color: #000000 !important;
+}
+
+/* Remove the default white background on inner containers */
+.block-container {
+    background-color: transparent !important;
+}
+
+/* Sidebar full background */
+[data-testid="stSidebar"] > div:first-child {
+    background-color: #000000 !important;
+}
+
+/* Make widget backgrounds transparent so black shows through */
+.stTextInput>div>div>input,
+[data-baseweb="select"] > div,
+.stFileUploader,
+.stDateInput,
+div[data-baseweb="textarea"] textarea {
+    background-color: transparent !important;
+    color: white !important;
+}
+
+/* Button backgrounds transparent (unless you recolor them separately) */
+.stButton>button {
+    background-color: transparent !important;
+    border-color: white !important;
+    color: white !important;
+}
+
+/* Scrollbars dark as well */
+::-webkit-scrollbar {
+    width: 8px;
+}
+::-webkit-scrollbar-thumb {
+    background: #444;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+/* Force white text across the whole app */
+html, body, .stApp {
+    color: #FFFFFF !important;
+}
+
+/* Markdown text */
+[data-testid="stMarkdownContainer"] {
+    color: #FFFFFF !important;
+}
+
+/* Generic divs (most Streamlit text sits in these) */
+div, p, span, label {
+    color: #FFFFFF !important;
+}
+
+/* Text inside inputs */
+input, textarea {
+    color: #FFFFFF !important;
+}
+
+/* Prevent browser from auto-inverting text based on OS theme */
+html {
+    color-scheme: dark;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+
+/* Style ONLY Streamlit's download button */
+.stDownloadButton > button {
+    background-color: #000000 !important;  /* pure black */
+    color: #FFFFFF !important;             /* white text */
+    border: 1px solid #FFFFFF !important;  /* optional white border */
+}
+
+/* On hover */
+.stDownloadButton > button:hover {
+    background-color: #222222 !important;  /* slightly lighter black */
+    color: #FFFFFF !important;
+}
+
+/* Prevent OS dark/light mode overrides */
+.stDownloadButton > button {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+
+/* ==== DARK FILE UPLOADER DROPZONE ==== */
+
+/* Outer uploader container */
+[data-testid="stFileUploader"] {
+    background-color: #000000 !important;
+    border-radius: 6px !important;
+}
+
+/* The big drag-and-drop area (the white bar in your screenshot) */
+[data-testid="stFileUploader"] section,
+[data-testid="stFileUploader"] section > div,
+[data-testid="stFileUploaderDropzone"],
+[data-testid="stFileUploadDropzone"] {
+    background-color: #000000 !important;
+    border: 1px dashed #444444 !important;
+    border-radius: 6px !important;
+}
+
+/* Text inside dropzone ("Drag and drop files here", etc.) */
+[data-testid="stFileUploader"] section * {
+    color: #FFFFFF !important;
+}
+
+/* "Browse files" button inside uploader */
+[data-testid="stFileUploaderBrowseButton"] {
+    background-color: #000000 !important;
+    color: #FFFFFF !important;
+    border: 1px solid #FFFFFF !important;
+}
+[data-testid="stFileUploaderBrowseButton"]:hover {
+    background-color: #222222 !important;
+}
+
+/* Uploaded file row (the line with the filename) */
+[data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] {
+    background-color: #000000 !important;
+    color: #FFFFFF !important;
+}
+
+/* File name + details text */
+[data-testid="stFileUploaderFileName"],
+[data-testid="stFileUploaderFileDetails"] {
+    color: #FFFFFF !important;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+
+/* ==== FORCE BROWSE BUTTON TO BLACK ==== */
+
+/* Primary test-id (newer Streamlit DOM) */
+[data-testid="stFileUploadDropzone"] button,
+[data-testid="stFileUploader"] button {
+
+/* Dark style */
+    background-color: #000000 !important;
+    color: #FFFFFF !important;
+    border: 1px solid #FFFFFF !important;
+    border-radius: 6px !important;
+}
+
+/* Hover state */
+[data-testid="stFileUploadDropzone"] button:hover,
+[data-testid="stFileUploader"] button:hover {
+    background-color: #222222 !important;
+    color: #FFFFFF !important;
+}
+
+/* Reset browser visual tweaking */
+[data-testid="stFileUploadDropzone"] button,
+[data-testid="stFileUploader"] button {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+
 st.title("Neural data visualizer")
 st.write("Upload your CSV data files and visualize them please")
 
@@ -26,15 +213,16 @@ st.write("Upload your CSV data files and visualize them please")
 #load the curated dataset
 acg_a, isi_a, wf_a, ct_a = load_data_classifier('classifying_data.tar.xz')
 
-with st.container():
-    uploaded_file_cell_type = st.file_uploader("upload the cell_type .csv file if you have one")
-    if uploaded_file_cell_type is not None:
-
-        # Can be used wherever a "file-like" object is accepted:
-        dataframe_cell_type = pd.read_csv(uploaded_file_cell_type).astype(str)
-        #st.write(dataframe_isi_dist)
-
-        #dataframe_cell_type.iloc[:, 0] = dataframe_cell_type.iloc[:, 0].apply(lambda x: x.decode() if isinstance(x, bytes) else x)
+uploaded_file_cell_type = None
+#with st.container():
+#    uploaded_file_cell_type = st.file_uploader("upload the cell_type .csv file if you have one")
+#    if uploaded_file_cell_type is not None:
+#
+#        # Can be used wherever a "file-like" object is accepted:
+#        dataframe_cell_type = pd.read_csv(uploaded_file_cell_type).astype(str)
+#        #st.write(dataframe_isi_dist)
+#
+#        #dataframe_cell_type.iloc[:, 0] = dataframe_cell_type.iloc[:, 0].apply(lambda x: x.decode() if isinstance(x, bytes) else x)
 
 
 uploaded_acg_files = []
@@ -257,16 +445,16 @@ if token_acqm or token_csv or token_nwb or token_phy:
 
     #make dropdown panel to choose the source for HIPPIE model
     dataset_files = {
-            "braingeneers_manual_curation": 'Maxwell Biosystems Chip',
-            "cellexplorer_area": 'Neuropixel 1.0',
-            "cellexplorer_cell_type": 'Neuropixel 1.0',
-            "hausser_cell_type": 'Neuropixel 1.0',
-            "hull_cell_type": 'Neuropixel 1.0',
-            "lissberger_labeled_cell_type": 'Extracellular recording Macaque',
-            "mouse_organoids_cell_line": 'Maxwell Biosystems chip',
-            "mouse_slice_area": 'Maxwell Biosystems Chip',
-            "allen_s_n_a_subset_no_superregions": 'Neuropixel 1.0'
-        }
+        "braingeneers_manual_curation": "Maxwell Biosystems Chip",
+        "cellexplorer_area": "Neuropixel 1.0",
+        "cellexplorer_cell_type": "Neuropixel 1.0",
+        "hausser_cell_type": "Neuropixel 1.0",
+        "hull_cell_type": "Neuropixel 1.0",
+        "lissberger_labeled_cell_type": "Extracellular recording Macaque",
+        "mouse_organoids_cell_line": "Maxwell Biosystems chip",
+        "mouse_slice_area": "Maxwell Biosystems Chip",
+        "allen_s_n_a_subset_no_superregions": "Neuropixel 1.0",
+    }
     
     source = st.selectbox(
             'Select how your data was obtained',
@@ -312,13 +500,25 @@ if token_acqm or token_csv or token_nwb or token_phy:
 
     if uploaded_file_cell_type is None:
         
-        st.title('Parametric UMAP')
+        min_cluster_size = st.slider(
+            "Minimum cluster size",
+            min_value=5,
+            max_value=200,
+            value=15,
+            help="Smallest allowed cluster size. Higher → fewer, more stable clusters."
+        )
 
-        #slider for the clusters
-        num_neighbors = st.slider("Number of neighbors (Knn)", 2, 10, 5)
+        min_samples = st.slider(
+            "Minimum samples",
+            min_value=5,
+            max_value=200,
+            value=15,
+            help="Controls density strictness. Higher → only very dense clusters survive."
+        )
 
-        #computing the kmeans clustering
-        output_array = compue_the_clusters_kmeans(output_array, num_neighbors)
+
+        #computing the hdbscan clustering
+        output_array = compue_the_clusters_hdbscan(output_array, min_cluster_size, min_samples)
 
         #making the chart
         chart = alt.Chart(output_array).mark_circle(size=30).encode(
@@ -327,8 +527,10 @@ if token_acqm or token_csv or token_nwb or token_phy:
             color='Classifier:N',
         ).properties(
             width=800,
-            height=800
+            height=800,
+            background='#000000'
         )
+        
         st.altair_chart(chart, use_container_width=True)
 
 
@@ -454,11 +656,11 @@ if token_acqm or token_csv or token_nwb or token_phy:
 
 
 
-    p = plotter(pd.DataFrame(acg_mean_list), 'ACG_mean', 'Timepoint', 'Amplitude', selected_cluster=option, alpha_background=0.8, alpha_upfront=0.8, line_width_background=0.8, line_width_upfront=1)
+    p = plotter(pd.DataFrame(acg_mean_list), 'ACG_mean', 'Timepoint', 'Amplitude', selected_cluster=option, alpha_background=0.8, alpha_upfront=0.8, line_width_background=0.8, line_width_upfront=3)
     st.bokeh_chart(p, use_container_width=True)
-    p=plotter(pd.DataFrame(isi_mean_list), 'isi_mean', 'Timepoint', 'Amplitude', selected_cluster=option, alpha_background=0.8, alpha_upfront=0.8, line_width_background=0.8, line_width_upfront=1)
+    p=plotter(pd.DataFrame(isi_mean_list), 'isi_mean', 'Timepoint', 'Amplitude', selected_cluster=option, alpha_background=0.8, alpha_upfront=0.8, line_width_background=0.8, line_width_upfront=3)
     st.bokeh_chart(p, use_container_width=True)
-    p=plotter(pd.DataFrame(wf_mean_list), 'Waveforms_mean', 'Timepoint', 'Amplitude', selected_cluster=option, alpha_background=0.8, alpha_upfront=0.8, line_width_background=0.8, line_width_upfront=1)
+    p=plotter(pd.DataFrame(wf_mean_list), 'Waveforms_mean', 'Timepoint', 'Amplitude', selected_cluster=option, alpha_background=0.8, alpha_upfront=0.8, line_width_background=0.8, line_width_upfront=3)
     st.bokeh_chart(p, use_container_width=True)
 
     
