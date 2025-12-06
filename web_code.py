@@ -206,15 +206,6 @@ st.markdown("""
 
 
 st.title("Neural data visualizer")
-
-with open("HIPPIE_WEB_USER_GUIDE.pdf", "rb") as f:
-    st.download_button(
-        label="📖 Open tutorial (PDF)",
-        data=f,
-        file_name="HIPPIE_WEB_USER_GUIDE.pdf",
-        mime="application/pdf",
-    )
-
 st.write("Upload your CSV data files and visualize them please")
 
 
