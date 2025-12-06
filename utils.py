@@ -15,7 +15,7 @@ import tarfile
 import torch
 from sklearn.cluster import KMeans
 import hdbscan
-
+import os
 
 
 def get_embeddings_multimodal(loader, model):
