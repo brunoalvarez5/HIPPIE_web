@@ -211,7 +211,7 @@ st.write("Upload your CSV data files and visualize them please")
 
 
 #load the curated dataset
-acg_a, isi_a, wf_a, ct_a = load_data_classifier('classifying_data.tar.xz')
+#acg_a, isi_a, wf_a, ct_a = load_data_classifier('classifying_data.tar.xz')
 
 uploaded_file_cell_type = None
 #with st.container():

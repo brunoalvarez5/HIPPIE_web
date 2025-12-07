@@ -5,15 +5,11 @@ import matplotlib.pyplot as plt
 import zipfile
 
 from scipy import interpolate, signal
-import torch
+#import torch
 
 from joblib import Parallel, delayed
 
-import io
-
-import os
-import re
-from collections import Counter
+from pynwb import NWBHDF5IO
 
 
 class Neurocurator:
@@ -255,64 +251,65 @@ class Neurocurator:
             - Column names are the bin centers in milliseconds
             - Values are the counts (or normalized counts) in each bin
         """
-        # Set up the window parameters
-        ccg_win = [-window_size_ms, window_size_ms]
+        # Calculate bin edges and centers
+        bin_edges = np.arange(-window_size_ms, window_size_ms + bin_size_ms, bin_size_ms)
+        bin_centers = bin_edges[:-1] + bin_size_ms / 2
+        n_bins = len(bin_centers)
 
-        # Create sparse binary trains for each spike train
-        max_time = 0
-        for train in spike_trains:
-            if len(train) > 0:
-                max_time = max(max_time, max(train))
+        def compute_single_acg(train):
+            """Compute autocorrelogram for a single spike train efficiently."""
+            # Convert to numpy array, flatten, and sort
+            train = np.sort(np.asarray(train, dtype=np.float64).flatten())
 
-        # Add a buffer to ensure we capture all relationships
-        max_time += window_size_ms * 2
+            # Skip if too few spikes
+            if len(train) < 2:
+                return np.zeros(n_bins)
 
-        # Bin size in time units
-        bin_size = bin_size_ms
+            n_spikes = len(train)
+            differences = []
 
-        # Calculate number of bins
-        n_bins = int(np.ceil(max_time / bin_size)) + 1
+            # For each spike, find all spikes within the window using binary search
+            for i in range(n_spikes):
+                # Use searchsorted to efficiently find spikes within window
+                # This is O(log n) instead of linear search
+                upper_bound = train[i] + window_size_ms
+                j_max = np.searchsorted(train, upper_bound, side='right')
 
-        # Create binary spike trains (sparse arrays)
-        sparse_trains = []
-        for train in spike_trains:
-            sparse_train = np.zeros(n_bins, dtype=int)
-            if len(train) > 0:
-                # Convert spike times to bin indices
-                bin_indices = (np.array(train) / bin_size).astype(int)
-                # Ensure indices are within bounds
-                valid_indices = bin_indices[bin_indices < n_bins]
-                sparse_train[valid_indices] = 1
-            sparse_trains.append(sparse_train)
+                # Compute differences to spikes in range [i+1, j_max)
+                if j_max > i + 1:
+                    diffs = train[i+1:j_max] - train[i]
+                    differences.extend(diffs)
+                    differences.extend(-diffs)  # Add symmetric negative lags
 
-        # Calculate lags array
-        lags = np.arange(ccg_win[0], ccg_win[1] + bin_size, bin_size)
-        n_lags = len(lags)
+            # Convert to numpy array
+            differences = np.array(differences) if differences else np.array([])
 
-        # Initialize results storage
-        all_acgs = np.zeros((len(spike_trains), n_lags))
+            # Remove central bin (lag=0) if requested
+            if remove_central_bin and len(differences) > 0:
+                differences = differences[np.abs(differences) > 1e-10]
 
-        # For each spike train, calculate its autocorrelogram
-        for i, sparse_train in enumerate(sparse_trains):
-            # Use the ccg function to calculate the ACG
-            counts, _ = self.compute_cross_correlation(
-                sparse_train, sparse_train, ccg_win=ccg_win, bin_size=bin_size
-            )
-
-            # Find and remove the central bin if requested
-            if remove_central_bin:
-                central_idx = np.where(lags == 0)[0]
-                if len(central_idx) > 0:
-                    counts[central_idx[0]] = 0
+            # Create histogram
+            if len(differences) > 0:
+                counts, _ = np.histogram(differences, bins=bin_edges)
+            else:
+                counts = np.zeros(n_bins)
 
             # Normalize if requested
-            if normalize and np.sum(sparse_train) > 0:
-                counts = counts / np.sum(sparse_train)
+            if normalize and n_spikes > 0:
+                counts = counts.astype(np.float64) / n_spikes
 
-            all_acgs[i] = counts
+            return counts
 
-        # Create the DataFrame
-        column_names = [f"{x:.2f}" for x in lags]
+        # Use parallel processing for better performance across spike trains
+        all_acgs = Parallel(n_jobs=-1)(
+            delayed(compute_single_acg)(train) for train in spike_trains
+        )
+
+        # Convert to numpy array then DataFrame
+        all_acgs = np.array(all_acgs)
+
+        # Create the DataFrame with appropriate column names
+        column_names = [f"{x:.2f}" for x in bin_centers]
         result_df = pd.DataFrame(all_acgs, columns=column_names)
 
         return result_df
@@ -573,8 +570,7 @@ class Neurocurator:
     
     def load_nwb_spike_times(self, nwb_path):
  
-        from pynwb import NWBHDF5IO #lazy import 
-
+        
         with NWBHDF5IO(nwb_path, "r", load_namespaces=True) as io:
             nwb = io.read()
 
@@ -590,9 +586,6 @@ class Neurocurator:
         self.spike_times_train = spikes_ms
 
     def load_nwb_waveforms(self, nwb_path, n_datapoints=50, candidates=("waveform_mean", "spike_waveforms")):
-        
-        from pynwb import NWBHDF5IO #lazy import
-        
         #Candidates is the name of the columns to look for first
 
         #this functionensures all waveforms have the same number of points n, which is 50
@@ -656,155 +649,3 @@ class Neurocurator:
         #define the universal waveform dataframe with the computed rows
         self.waveforms = pd.DataFrame(wf_rows)
         return self.waveforms
-    
-
-    def load_phy_curated(self, zip_path, n_datapoints=50, window_ms=100, bin_ms=1, good_only=True):
-
-        #load .npy straight from the zip
-        def _np_from_zip(zf, name):
-            with zf.open(name) as f:
-                return np.load(io.BytesIO(f.read()), allow_pickle=True)
-
-        #read and decode a text file (e.g., params.py)
-        def _text_from_zip(zf, name):
-            with zf.open(name) as f:
-                return f.read().decode("utf-8", errors="ignore")
-
-        #map basename -> full path (handles nested dirs)
-        def _index_by_basename(zf):
-            m = {}
-            for p in zf.namelist():
-                base = p.split("/")[-1]
-                if base not in m:
-                    m[base] = p
-            return m
-
-        #center on trough, cut/pad to fixed length
-        def _cut_or_pad_to_n(wf, n=50):
-            wf = np.asarray(wf, float).flatten()
-            if wf.size == 0:
-                return np.zeros(n, float)
-            mid = int(np.argmin(wf))
-            left = int(n * 2/5)
-            lo = max(0, mid - left)
-            hi = min(wf.size, lo + n)
-            seg = wf[lo:hi]
-            if seg.size < n:
-                seg = np.pad(seg, (0, n - seg.size))
-            return seg
-
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            by_base = _index_by_basename(zf)
-            #fail if one of the data is missing
-            REQUIRED = {"spike_times.npy", "spike_clusters.npy", "templates.npy", "params.py"}
-            missing = [r for r in REQUIRED if r not in by_base]
-            if missing:
-                raise ValueError(f"Missing required files {missing} inside {zip_path}")
-
-            #load each one of the datasets into a variable
-            
-            spike_times = _np_from_zip(zf, by_base["spike_times.npy"])
-            spike_clusters = _np_from_zip(zf, by_base["spike_clusters.npy"])
-            templates = _np_from_zip(zf, by_base["templates.npy"])  # [nTemplates, nTime, nChannels]
-            params_txt = _text_from_zip(zf, by_base["params.py"])
-
-            m = re.search(r"sample_rate\s*=\s*([0-9.]+)", params_txt)
-            if not m:
-                raise ValueError("Could not parse sample_rate from params.py")
-            sample_rate = float(m.group(1))  # Hz
-
-            channel_map = _np_from_zip(zf, by_base["channel_map.npy"]) if "channel_map.npy" in by_base else None
-            channel_positions = _np_from_zip(zf, by_base["channel_positions.npy"]) if "channel_positions.npy" in by_base else None
-            spike_templates = _np_from_zip(zf, by_base["spike_templates.npy"]) if "spike_templates.npy" in by_base else None
-
-            #'good' filter from cluster_info.tsv
-            allow_cids = None
-            if "cluster_info.tsv" in by_base and good_only:
-                import csv
-                good_ids = set()
-                with zf.open(by_base["cluster_info.tsv"]) as f:
-                    text = f.read().decode("utf-8", errors="ignore").splitlines()
-                    rdr = csv.DictReader(text, delimiter="\t")
-                    for row in rdr:
-                        grp = (row.get("group") or row.get("KSLabel") or "").strip().lower()
-                        if grp == "good":
-                            try:
-                                good_ids.add(int(row["cluster_id"]))
-                            except Exception:
-                                pass
-                if good_ids:
-                    allow_cids = good_ids
-
-            #creating per-unit arrays
-            unique_c = np.unique(spike_clusters)
-            unit_times_ms = []
-            wf_rows = []
-            xs, ys = [], []
-
-            #main code, iterate iver the units
-            for cid in unique_c:
-                if allow_cids is not None and int(cid) not in allow_cids:
-                    continue
-
-                idx = np.where(spike_clusters == cid)[0]
-                if idx.size == 0:
-                    continue
-
-                #change to milliseconds
-                times_ms = (spike_times[idx].astype(np.float64) / sample_rate) * 1000.0
-                unit_times_ms.append(times_ms)
-
-                #use dominant template for this unit
-                #(robust to (n,1) shapes / object dtype)
-                #pickong the waaveform
-                if spike_templates is not None:
-                    vals = np.asarray(spike_templates)[idx]
-                    vals = np.array(vals, dtype=np.int64).reshape(-1)   #flatten + ensure ints
-                    if vals.size > 0:
-                        tmpl = int(np.bincount(vals).argmax())          #mode of template IDs
-                    else:
-                        tmpl = 0
-                else:
-                    tmpl = int(cid) if 0 <= int(cid) < templates.shape[0] else 0
-
-                #clamp in case tmpl is out of range
-                if not (0 <= int(tmpl) < templates.shape[0]):
-                    tmpl = 0
-
-                #best channel = deepest trough
-                tmpl_wf = templates[tmpl]  # [time, channels]
-                best_ch = int(np.argmin(np.min(tmpl_wf, axis=0)))
-                ch_wf = tmpl_wf[:, best_ch]
-                seg = _cut_or_pad_to_n(ch_wf, n=n_datapoints)
-
-                #map to probe channel and (x,y) if available
-                probe_ch = best_ch
-                if channel_map is not None and best_ch < channel_map.size:
-                    probe_ch = int(channel_map[best_ch])
-                if channel_positions is not None and 0 <= probe_ch < channel_positions.shape[0]:
-                    xs.append(float(channel_positions[probe_ch, 0]))
-                    ys.append(float(channel_positions[probe_ch, 1]))
-                else:
-                    xs.append(np.nan); ys.append(np.nan)
-
-                wf_rows.append(seg)
-
-        #set attributes
-        self.waveforms = pd.DataFrame(wf_rows)
-        self.spike_times_train = [np.asarray(st, float) for st in unit_times_ms]
-        self.metadata_obs = pd.DataFrame({"x": xs, "y": ys})
-        self.sampling_rate = sample_rate
-
-        #compute isi and acg with the already existing methods
-        self.isi_distribution = self.compute_isi_distribution(time_window=window_ms)
-        self.acgs = self.compute_autocorrelogram(
-            self.spike_times_train,
-            bin_size_ms=bin_ms,
-            window_size_ms=window_ms,
-            normalize=False,
-            remove_central_bin=True,
-        )
-
-        self.validate_data_integrity()
-        return
-
