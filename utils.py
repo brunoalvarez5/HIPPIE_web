@@ -47,7 +47,16 @@ def get_embeddings_multimodal(loader, model):
 #functions to normalize the data
 @st.cache_data
 def normalize_to_minus1_1(df):
-    return df.apply(lambda row: 2 * ((row - row.min()) / (row.max() - row.min())) - 1, axis=1)
+    def norm_row(row):
+        rmin = row.min()
+        rmax = row.max()
+        # If all values are identical -> avoid division by zero
+        if rmax == rmin:
+            # you can choose 0, or 1, or whatever; 0 is a neutral center
+            return pd.Series(0.0, index=row.index)
+        return 2 * ((row - rmin) / (rmax - rmin)) - 1
+
+    return df.apply(norm_row, axis=1)
 
 @st.cache_data
 def normalize_by_row_max(df):

@@ -493,6 +493,18 @@ if token_acqm or token_csv or token_nwb or token_phy:
 
     ##########################################################################
     #normal UMAP
+
+    #if no valid neurons survived cleaning/normalization the code will stop
+    if embedding is None or len(embedding) == 0:
+        st.error(
+            "No valid neurons remained after preprocessing. "
+            "This often happens if all units have flat features (e.g. no spikes or "
+            "no waveform/ISI variance) in the NWB file."
+        )
+        st.stop()
+
+
+
     embedding = compute_umap(embedding)
     output_array = np.array(embedding, dtype=np.float32)
     output_array = pd.DataFrame(output_array, columns=['UMAP 1', 'UMAP 2'])
