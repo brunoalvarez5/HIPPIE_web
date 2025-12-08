@@ -234,9 +234,35 @@ def HIPPIE(normalized_acg, normalized_isi, normalized_waveforms, source=None):
 
 @st.cache_data
 def compute_umap(data):
+    """
+    Compute a 2D UMAP embedding.
+
+    If there are fewer than 2 points, UMAP can't build a graph and will crash,
+    so we fall back to a trivial 2D projection using the first two dimensions
+    of the input data.
+    """
+    data = np.asarray(data)
+
+    # No points at all → return empty (caller should handle this case)
+    if data.shape[0] == 0:
+        return data
+
+    # Only 1 point → UMAP cannot run; just take first 2 dims as a "fake UMAP"
+    if data.shape[0] == 1:
+        # data is (1, D). We want (1, 2)
+        if data.shape[1] >= 2:
+            return data[:, :2]
+        else:
+            # If D == 1, pad a second dimension with 0
+            out = np.zeros((1, 2), dtype=float)
+            out[0, 0] = data[0, 0]
+            return out
+
+    # Normal case: at least 2 points → run real UMAP
     umap_model = umap.UMAP()
     embedding = umap_model.fit_transform(data)
     return embedding
+
 
 @st.cache_resource
 def compute_pumap(embedding):
