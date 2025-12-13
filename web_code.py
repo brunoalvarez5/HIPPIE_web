@@ -8,7 +8,7 @@ import numpy as np
 import altair as alt
 import tempfile
 from sklearn.neighbors import KNeighborsClassifier
-import torch.nn.functional as F
+#import torch.nn.functional as F
 from bokeh.models import ColumnDataSource
 import torch
 import tarfile
