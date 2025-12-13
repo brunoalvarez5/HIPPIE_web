@@ -8,13 +8,11 @@ import numpy as np
 import altair as alt
 import tempfile
 from sklearn.neighbors import KNeighborsClassifier
-#import torch.nn.functional as F
 from bokeh.models import ColumnDataSource
-#import torch
 import tarfile
 from neurocurator import Neurocurator
 
-from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, acqm_file_reader, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters_kmeans, load_data_classifier, compue_the_clusters_labeled, compue_the_clusters_hdbscan
+from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, acqm_file_reader, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters_kmeans, load_data_classifier, compue_the_clusters_labeled, compue_the_clusters_hdbscan, resize_rows_linear
 
 
 
@@ -392,33 +390,21 @@ if token_acqm or token_csv or token_nwb or token_phy:
     col1, col2, col3 = st.columns(3)
     with col1:
     #acg file
-        resized_acg = F.interpolate(
-            torch.tensor(df_acg.values, dtype=torch.float32).unsqueeze(1),
-            size=100,
-            mode='linear'
-        ).squeeze(1).numpy()
+        resized_acg = resize_rows_linear(df_acg.values, 100)
         normalized_acg = normalize_to_minus1_1(df_acg)
         p = plotter(normalized_acg, 'ACG', 'Timepoint', 'Amplitude')
         st.bokeh_chart(p, use_container_width=True)
 
     with col2:
     #isi plot
-        resized_isi = F.interpolate(
-            torch.tensor(df_isi.values, dtype=torch.float32).unsqueeze(1),
-            size=100,
-            mode='linear'
-        ).squeeze(1).numpy()
+        resized_isi = resize_rows_linear(df_isi.values, 100)
         normalized_isi = normalize_by_row_max(df_isi)
         p = plotter(normalized_isi, 'ISI distribution', 'Timepoint', 'Amplitude')
         st.bokeh_chart(p, use_container_width=True)
     
     with col3:
     #waveforms plot
-        resized_waveforms = F.interpolate(
-            torch.tensor(df_waveforms.values, dtype=torch.float32).unsqueeze(1),
-            size=50,
-            mode='linear'
-        ).squeeze(1).numpy()
+        resized_waveforms = resize_rows_linear(df_waveforms.values, 50)
         normalized_waveforms = normalize_to_minus1_1(df_waveforms)
         p = plotter(normalized_waveforms, 'Waveforms', 'Timepoint', 'Amplitude')
         st.bokeh_chart(p, use_container_width=True)

@@ -5,31 +5,31 @@ import io
 import zipfile 
 import pandas as pd 
 import tarfile
-import torch
 import os
 
 
-def get_embeddings_multimodal(loader, model):
-    """Extract embeddings from a multimodal model."""
-    model.eval()
-    all_embeddings = []
-    all_labels = []
-    all_data = []
+# def get_embeddings_multimodal(loader, model):
+#     import torch
+#     """Extract embeddings from a multimodal model."""
+#     model.eval()
+#     all_embeddings = []
+#     all_labels = []
+#     all_data = []
     
-    with torch.no_grad():
-        for sample in loader:
-            embedding = model(sample)[0].detach().cpu().numpy()
-            # Normalize embeddings
-            embedding = (embedding - np.mean(embedding, axis=1, keepdims=True)) / np.std(embedding, axis=1, keepdims=True)
-            all_embeddings.extend(embedding)
-            label = sample[1]
-            if label.ndim == 2:
-                cls_label, source_label = label.unbind(1)
-            else:
-                cls_label = label
-            all_labels.extend(cls_label.detach().cpu().numpy())
+#     with torch.no_grad():
+#         for sample in loader:
+#             embedding = model(sample)[0].detach().cpu().numpy()
+#             # Normalize embeddings
+#             embedding = (embedding - np.mean(embedding, axis=1, keepdims=True)) / np.std(embedding, axis=1, keepdims=True)
+#             all_embeddings.extend(embedding)
+#             label = sample[1]
+#             if label.ndim == 2:
+#                 cls_label, source_label = label.unbind(1)
+#             else:
+#                 cls_label = label
+#             all_labels.extend(cls_label.detach().cpu().numpy())
     
-    return np.array(all_embeddings), np.array(all_labels)
+#     return np.array(all_embeddings), np.array(all_labels)
 
 
 ##############
@@ -428,3 +428,15 @@ def compue_the_clusters_hdbscan(output_array: pd.DataFrame, min_cluster_size: in
     result['Cluster_prob'] = probs
 
     return result
+
+def resize_rows_linear(arr: np.ndarray, out_len: int) -> np.ndarray:
+    arr = np.asarray(arr, dtype=np.float32)
+    n, in_len = arr.shape
+    if in_len == out_len:
+        return arr
+    x_old = np.linspace(0.0, 1.0, in_len, dtype=np.float32)
+    x_new = np.linspace(0.0, 1.0, out_len, dtype=np.float32)
+    out = np.empty((n, out_len), dtype=np.float32)
+    for i in range(n):
+        out[i] = np.interp(x_new, x_old, arr[i]).astype(np.float32)
+    return out
