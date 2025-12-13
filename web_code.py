@@ -380,7 +380,7 @@ if token_acqm or token_csv or token_nwb or token_phy:
             df_waveforms = pd.concat([df_waveforms, nc.waveforms], ignore_index=True)
 
 
-print("########################FILES LOADED#############################")
+    print("########################FILES LOADED#############################")
 #################################
 
 
