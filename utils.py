@@ -1,20 +1,11 @@
 import numpy as np
 import umap
-from bokeh.plotting import figure
-from bokeh.models import HoverTool
-from neurocurator import Neurocurator
 import streamlit as st
 import io
 import zipfile 
 import pandas as pd 
-import onnxruntime as ort
-from sklearn.neighbors import KNeighborsClassifier
-import onnxruntime as ort
-import streamlit as st
 import tarfile
 import torch
-from sklearn.cluster import KMeans
-import hdbscan
 import os
 
 
@@ -47,6 +38,7 @@ def get_embeddings_multimodal(loader, model):
 #functions to normalize the data
 @st.cache_data
 def normalize_to_minus1_1(df):
+    import pandas as pd
     def norm_row(row):
         rmin = row.min()
         rmax = row.max()
@@ -82,6 +74,8 @@ def plot_lines(ploted_obj, data, color, alpha, line_width):
 
 @st.cache_resource
 def plotter(data, title, x_label, y_label, selected_cluster=None, alpha_background=0.5, alpha_upfront=0.8, line_width_background=0.3, line_width_upfront=0.5):
+    from bokeh.plotting import figure
+    from bokeh.models import HoverTool
     p = figure(
         title=title,
         x_axis_label=x_label,
@@ -163,6 +157,7 @@ def drop_nan_rows(*dfs):
 
 @st.cache_resource
 def HIPPIE(normalized_acg, normalized_isi, normalized_waveforms, source=None):
+    import onnxruntime as ort
     """
     Compute the embedding using ONNX model (no source input required).
     """
@@ -266,6 +261,7 @@ def compute_umap(data):
 
 @st.cache_resource
 def compute_pumap(embedding):
+    import onnxruntime as ort
     model = ort.InferenceSession("Mark_VII_model.onnx")
     input_name = model.get_inputs()[0].name
 
@@ -281,6 +277,7 @@ def compute_pumap(embedding):
 
 @st.cache_data
 def compue_the_clusters_labeled(output_array, num_neighbors, ct_a):
+    from sklearn.neighbors import KNeighborsClassifier
     
     n = len(ct_a)
     X_labeled = output_array[['UMAP 1', 'UMAP 2']].iloc[:n].values
@@ -299,6 +296,7 @@ def compue_the_clusters_labeled(output_array, num_neighbors, ct_a):
 
 @st.cache_data
 def compue_the_clusters_kmeans(output_array, num_neighbors):
+    from sklearn.cluster import KMeans
     
     # Use UMAP coordinates of ALL points
     X_all = output_array[['UMAP 1', 'UMAP 2']].values
@@ -312,6 +310,7 @@ def compue_the_clusters_kmeans(output_array, num_neighbors):
 
 @st.cache_data
 def acqm_file_reader(tmp_file_path):
+    from neurocurator import Neurocurator
     
     reader = Neurocurator()
     reader.load_acqm(tmp_file_path)
@@ -348,6 +347,7 @@ def csv_downloader(embeddings, acg, isi, wf):
 
 #@st.cache_data
 def h5_downloader(embeddings, acg, isi, wf):
+    import pandas as pd
     #create an in-memory bytes buffer
     buffer = io.BytesIO()
 
@@ -370,6 +370,7 @@ def h5_downloader(embeddings, acg, isi, wf):
 
 #@st.cache_data
 def load_data_classifier(tar_file_path):
+    import pandas as pd
     
     csv_data = {}  # To store DataFrames
 
@@ -407,6 +408,7 @@ def compue_the_clusters_hdbscan(output_array: pd.DataFrame, min_cluster_size: in
             'Classifier'      : cluster labels (-1 = noise)
             'Cluster_prob'    : membership probability per point
     """
+    import hdbscan
     #use UMAP coordinates of ALL points
     X_all = output_array[['UMAP 1', 'UMAP 2']].values
 
