@@ -10,7 +10,7 @@ import tempfile
 from sklearn.neighbors import KNeighborsClassifier
 #import torch.nn.functional as F
 from bokeh.models import ColumnDataSource
-import torch
+#import torch
 import tarfile
 from neurocurator import Neurocurator
 
