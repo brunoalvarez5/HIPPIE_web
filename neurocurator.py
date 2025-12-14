@@ -269,10 +269,11 @@ class Neurocurator:
             """Compute autocorrelogram for a single spike train efficiently."""
             # Convert to numpy array, flatten, and sort
             train = np.sort(np.asarray(train, dtype=np.float64).flatten())
+            counts = np.zeros(n_bins, dtype=np.float64)
 
             # Skip if too few spikes
             if len(train) < 2:
-                return np.zeros(n_bins)
+                return counts
 
             n_spikes = len(train)
             differences = []
