@@ -259,6 +259,12 @@ class Neurocurator:
         bin_centers = bin_edges[:-1] + bin_size_ms / 2
         n_bins = len(bin_centers)
 
+    
+        # Precompute constants for binning
+        inv_bin = 1.0 / float(bin_size_ms)
+        offset = float(window_size_ms) * inv_bin  # shift so [-win, +win] maps to [0, 2*win/bin)
+
+
         def compute_single_acg(train):
             """Compute autocorrelogram for a single spike train efficiently."""
             # Convert to numpy array, flatten, and sort
@@ -278,28 +284,33 @@ class Neurocurator:
                 upper_bound = train[i] + window_size_ms
                 j_max = np.searchsorted(train, upper_bound, side='right')
 
-                # Compute differences to spikes in range [i+1, j_max)
-                if j_max > i + 1:
-                    diffs = train[i+1:j_max] - train[i]
-                    differences.extend(diffs)
-                    differences.extend(-diffs)  # Add symmetric negative lags
+                if j_max <= i + 1:
+                    continue
+
+                diffs = train[i + 1 : j_max] - train[i]  # positive diffs in (0, window]
+
+                # map +diffs to bins
+                idx_pos = np.floor((diffs * inv_bin) + offset).astype(np.int64)
+                m = (idx_pos >= 0) & (idx_pos < n_bins)
+                if np.any(m):
+                    np.add.at(counts, idx_pos[m], 1)
+
+                # map -diffs to bins (mirror)
+                idx_neg = np.floor((-diffs * inv_bin) + offset).astype(np.int64)
+                m = (idx_neg >= 0) & (idx_neg < n_bins)
+                if np.any(m):
+                    np.add.at(counts, idx_neg[m], 1)
 
             # Convert to numpy array
             differences = np.array(differences) if differences else np.array([])
 
             # Remove central bin (lag=0) if requested
-            if remove_central_bin and len(differences) > 0:
-                differences = differences[np.abs(differences) > 1e-10]
-
-            # Create histogram
-            if len(differences) > 0:
-                counts, _ = np.histogram(differences, bins=bin_edges)
-            else:
-                counts = np.zeros(n_bins)
+            if remove_central_bin:
+                counts[n_bins // 2] = 0
 
             # Normalize if requested
             if normalize and n_spikes > 0:
-                counts = counts.astype(np.float64) / n_spikes
+                counts = counts / float(n_spikes)
 
             return counts
 
@@ -313,9 +324,8 @@ class Neurocurator:
 
         # Create the DataFrame with appropriate column names
         column_names = [f"{x:.2f}" for x in bin_centers]
-        result_df = pd.DataFrame(all_acgs, columns=column_names)
 
-        return result_df
+        return pd.DataFrame(all_acgs, columns=column_names)
 
     def compute_cross_correlation(self, bt1, bt2, ccg_win=[-10, 10], t_lags_shift=0, bin_size=1):
         """
