@@ -12,7 +12,7 @@ from bokeh.models import ColumnDataSource
 import tarfile
 from neurocurator import Neurocurator
 
-from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, acqm_file_reader, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters_kmeans, load_data_classifier, compue_the_clusters_labeled, compue_the_clusters_hdbscan, resize_rows_linear
+from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, acqm_file_reader, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters_kmeans, load_data_classifier, compue_the_clusters_labeled, compue_the_clusters_hdbscan, resize_rows_linear, acqm_file_reader_np
 
 
 
@@ -305,79 +305,157 @@ elif uploading_option == "Work with phy files":
 if token_acqm or token_csv or token_nwb or token_phy:
 
 
-    if token_acqm == True:
-        df_acg = pd.DataFrame()
-        df_isi = pd.DataFrame()
-        df_waveforms = pd.DataFrame()
+    if token_acqm:
+        acg_parts = []
+        isi_parts = []
+        wf_parts  = []
 
         for uploaded_file in uploaded_phisiological_data_zip:
+            
+            #write the uploaded zip to a temp file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_file:
+                tmp_file.write(uploaded_file.getbuffer())
+                tmp_path = tmp_file.name
 
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
-                tmp_file.write(uploaded_file.read())
-                tmp_file_path = tmp_file.name
+            try:
+                acg_np, isi_np, wf_np = acqm_file_reader_np(tmp_path)
 
-            uploaded_file_acg, uploaded_file_isi_dist, uploaded_file_waefroms = acqm_file_reader(tmp_file_path)
+                #store the results without concatenating yet
+                acg_parts.append(acg_np)
+                isi_parts.append(isi_np)
+                wf_parts.append(wf_np)
 
-            df_acg = pd.concat([df_acg, uploaded_file_acg], ignore_index=True)
-            df_isi = pd.concat([df_isi, uploaded_file_isi_dist], ignore_index=True)
-            df_waveforms = pd.concat([df_waveforms, uploaded_file_waefroms], ignore_index=True)
-    
-    elif token_csv == True:
-        df_acg = pd.DataFrame()
-        df_isi = pd.DataFrame()
-        df_waveforms = pd.DataFrame()
+            finally:
 
-        for uploaded_file in uploaded_acg_files:
-            df_acg = pd.concat([df_acg, pd.read_csv(uploaded_file)], ignore_index=True)
+                #clean up the temp file
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+            #free references of each data early on
+            del acg_np, isi_np, wf_np
 
-        for uploaded_file in uploaded_isi_files:
-            df_isi = pd.concat([df_isi, pd.read_csv(uploaded_file)], ignore_index=True)
+        #one big stack
+        acg_all = np.vstack(acg_parts) if acg_parts else np.empty((0, 100), dtype=np.float32)
+        isi_all = np.vstack(isi_parts) if isi_parts else np.empty((0, 100), dtype=np.float32)
+        wf_all  = np.vstack(wf_parts)  if wf_parts  else np.empty((0, 50),  dtype=np.float32)
 
-        for uploaded_file in uploaded_waveform_files:
-            df_waveforms = pd.concat([df_waveforms, pd.read_csv(uploaded_file)], ignore_index=True)
-    
-    elif token_nwb == True :
-        df_acg = pd.DataFrame()
-        df_isi = pd.DataFrame()
-        df_waveforms = pd.DataFrame()
+        #convert back to DataFrame once (normalize/plotter code stays identical)
+        df_acg = pd.DataFrame(acg_all)
+        df_isi = pd.DataFrame(isi_all)
+        df_waveforms = pd.DataFrame(wf_all)
+
+        #free the parts lists for RAM
+        del acg_parts, isi_parts, wf_parts, acg_all, isi_all, wf_all
+        import gc; gc.collect()
+
+
+    elif token_csv:
+        acg_np = []
+        isi_np = []
+        wf_np  = []
+
+        for f in uploaded_acg_files:
+            acg_np.append(pd.read_csv(f).to_numpy(dtype=np.float32))
+
+        for f in uploaded_isi_files:
+            isi_np.append(pd.read_csv(f).to_numpy(dtype=np.float32))
+
+        for f in uploaded_waveform_files:
+            wf_np.append(pd.read_csv(f).to_numpy(dtype=np.float32))
+
+        acg_all = np.vstack(acg_np) if acg_np else np.empty((0, 100), dtype=np.float32)
+        isi_all = np.vstack(isi_np) if isi_np else np.empty((0, 100), dtype=np.float32)
+        wf_all  = np.vstack(wf_np)  if wf_np  else np.empty((0, 50),  dtype=np.float32)
+
+        df_acg = pd.DataFrame(acg_all)
+        df_isi = pd.DataFrame(isi_all)
+        df_waveforms = pd.DataFrame(wf_all)
+
+        del acg_np, isi_np, wf_np, acg_all, isi_all, wf_all
+        import gc; gc.collect()
+
+
+
+    elif token_nwb:
+        acg_np = []
+        isi_np = []
+        wf_np  = []
 
         for uploaded_file in nwb_uploaded:
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.nwb') as tmp_file:
-                tmp_file.write(uploaded_file.read())
-                tmp_file_path = tmp_file.name
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".nwb") as tmp_file:
+                tmp_file.write(uploaded_file.getbuffer())
+                tmp_path = tmp_file.name
 
-            nc = Neurocurator()
+            try:
+                nc = Neurocurator()
+                nc.load_nwb_spike_times(tmp_path)
+                nc.load_nwb_waveforms(tmp_path, n_datapoints=50,
+                                    candidates=("waveform_mean", "spike_waveforms"))
 
-            nc.load_nwb_spike_times(tmp_file_path)                            # → self.spike_times_train (en ms)
-            nc.load_nwb_waveforms(tmp_file_path, n_datapoints=50,             # → self.waveforms (50 puntos)
-            candidates=("waveform_mean", "spike_waveforms"))
+                nc.isi_distribution = nc.compute_isi_distribution(time_window=100)
+                nc.acgs = nc.compute_autocorrelogram(nc.spike_times_train)
 
-            # Calcular ISI (0–100 ms) y ACG (±100 ms, bin=1 ms) con tus funciones ya existentes
-            nc.isi_distribution = nc.compute_isi_distribution(time_window=100)
-            nc.acgs = nc.compute_autocorrelogram(nc.spike_times_train)
+                acg_np.append(nc.acgs.to_numpy(dtype=np.float32, copy=True))
+                isi_np.append(nc.isi_distribution.to_numpy(dtype=np.float32, copy=True))
+                wf_np.append(nc.waveforms.to_numpy(dtype=np.float32, copy=True))
 
-            df_acg = pd.concat([df_acg, nc.acgs], ignore_index=True)
-            df_isi = pd.concat([df_isi, nc.isi_distribution], ignore_index=True)
-            df_waveforms = pd.concat([df_waveforms, nc.waveforms], ignore_index=True)
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
 
+            del nc
+
+        acg_all = np.vstack(acg_np) if acg_np else np.empty((0, 100), dtype=np.float32)
+        isi_all = np.vstack(isi_np) if isi_np else np.empty((0, 100), dtype=np.float32)
+        wf_all  = np.vstack(wf_np)  if wf_np  else np.empty((0, 50),  dtype=np.float32)
+
+        df_acg = pd.DataFrame(acg_all)
+        df_isi = pd.DataFrame(isi_all)
+        df_waveforms = pd.DataFrame(wf_all)
+
+        del acg_np, isi_np, wf_np, acg_all, isi_all, wf_all
+        import gc; gc.collect()
 
     
-    elif token_phy == True:
-        df_acg = pd.DataFrame()
-        df_isi = pd.DataFrame()
-        df_waveforms = pd.DataFrame()
+    elif token_phy:
+        acg_np = []
+        isi_np = []
+        wf_np  = []
 
         for uploaded_file in phy_uploaded:
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
-                tmp_file.write(uploaded_file.read())
-                tmp_file_path = tmp_file.name
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_file:
+                tmp_file.write(uploaded_file.getbuffer())
+                tmp_path = tmp_file.name
 
-            nc = Neurocurator()
-            nc.load_phy_curated(tmp_file_path)
-            
-            df_acg = pd.concat([df_acg, nc.acgs], ignore_index=True)
-            df_isi = pd.concat([df_isi, nc.isi_distribution], ignore_index=True)
-            df_waveforms = pd.concat([df_waveforms, nc.waveforms], ignore_index=True)
+            try:
+                nc = Neurocurator()
+                nc.load_phy_curated(tmp_path)
+
+                acg_np.append(nc.acgs.to_numpy(dtype=np.float32, copy=True))
+                isi_np.append(nc.isi_distribution.to_numpy(dtype=np.float32, copy=True))
+                wf_np.append(nc.waveforms.to_numpy(dtype=np.float32, copy=True))
+
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
+            del nc
+
+        acg_all = np.vstack(acg_np) if acg_np else np.empty((0, 100), dtype=np.float32)
+        isi_all = np.vstack(isi_np) if isi_np else np.empty((0, 100), dtype=np.float32)
+        wf_all  = np.vstack(wf_np)  if wf_np  else np.empty((0, 50),  dtype=np.float32)
+
+        df_acg = pd.DataFrame(acg_all, columns=[f"acg_{i}" for i in range(acg_all.shape[1])])
+        df_isi = pd.DataFrame(isi_all, columns=[f"isi_{i}" for i in range(isi_all.shape[1])])
+        df_waveforms = pd.DataFrame(wf_all, columns=[f"wf_{i}" for i in range(wf_all.shape[1])])
+
+        del acg_np, isi_np, wf_np, acg_all, isi_all, wf_all
+        import gc; gc.collect()
 
 
     print("########################FILES LOADED#############################")

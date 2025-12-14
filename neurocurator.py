@@ -91,7 +91,7 @@ class Neurocurator:
         # Extract ISI distribution
         self.isi_distribution = self.compute_isi_distribution()
         # Extract autocorrelogram
-        self.acgs = self.compute_autocorrelogram(train)
+        self.acgs = self.compute_autocorrelogram(self.spike_times_train)
         # Extract position
         self.metadata_obs = self.extract_neuron_positions(neuron_data)
 

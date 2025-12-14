@@ -440,3 +440,16 @@ def resize_rows_linear(arr: np.ndarray, out_len: int) -> np.ndarray:
     for i in range(n):
         out[i] = np.interp(x_new, x_old, arr[i]).astype(np.float32)
     return out
+
+@st.cache_data
+def acqm_file_reader_np(tmp_file_path):
+    from neurocurator import Neurocurator
+    reader = Neurocurator()
+    reader.load_acqm(tmp_file_path)
+
+    #convert to compact dtypes immediately
+    acg = reader.acgs.to_numpy(dtype=np.float32, copy=True)
+    isi = reader.isi_distribution.to_numpy(dtype=np.float32, copy=True)
+    wf  = reader.waveforms.to_numpy(dtype=np.float32, copy=True)
+
+    return acg, isi, wf
