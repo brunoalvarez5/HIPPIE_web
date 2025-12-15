@@ -292,15 +292,15 @@ class Neurocurator:
 
                 # map +diffs to bins
                 idx_pos = np.floor((diffs * inv_bin) + offset).astype(np.int64)
-                m = (idx_pos >= 0) & (idx_pos < n_bins)
-                if np.any(m):
-                    np.add.at(counts, idx_pos[m], 1)
+                m_pos = (idx_pos >= 0) & (idx_pos < n_bins)
+                if m_pos.any():
+                    np.add.at(counts, idx_pos[m_pos], 1)
 
                 # map -diffs to bins (mirror)
                 idx_neg = np.floor((-diffs * inv_bin) + offset).astype(np.int64)
-                m = (idx_neg >= 0) & (idx_neg < n_bins)
-                if np.any(m):
-                    np.add.at(counts, idx_neg[m], 1)
+                m_neg = (idx_neg >= 0) & (idx_neg < n_bins)
+                if m_neg.any():
+                    np.add.at(counts, idx_neg[m_neg], 1)
 
             # Convert to numpy array
             differences = np.array(differences) if differences else np.array([])
