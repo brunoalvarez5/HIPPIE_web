@@ -214,7 +214,7 @@ class Neurocurator:
                 return np.zeros(time_window)
             return np.histogram(isi[isi < time_window], bins=time_window)[0]
         
-        isi_distribution = Parallel(n_jobs=1)(
+        isi_distribution = Parallel(n_jobs=-1)(
             delayed(compute_hist)(isi) for isi in interspike_intervals_object
         )
         return pd.DataFrame(isi_distribution)
@@ -316,7 +316,7 @@ class Neurocurator:
             return counts
 
         # Use parallel processing for better performance across spike trains
-        all_acgs = Parallel(n_jobs=1)(
+        all_acgs = Parallel(n_jobs=-1)(
             delayed(compute_single_acg)(train) for train in spike_trains
         )
 
