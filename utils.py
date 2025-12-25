@@ -6,7 +6,8 @@ import zipfile
 import pandas as pd 
 import tarfile
 import os
-
+import re
+import requests
 
 # def get_embeddings_multimodal(loader, model):
 #     import torch
@@ -453,3 +454,79 @@ def acqm_file_reader_np(tmp_file_path):
     wf  = reader.waveforms.to_numpy(dtype=np.float32, copy=True)
 
     return acg, isi, wf
+
+
+
+#functions to work with files from drive and dropbox ahead
+
+def _normalize_dropbox(url: str) -> str:
+    # Convert "...?dl=0" to direct download
+    if "dropbox.com" in url:
+        url = re.sub(r"\?dl=\d", "?dl=1", url)
+    return url
+
+def _gdrive_file_id(url: str) -> str | None:
+    # Handles formats:
+    # - https://drive.google.com/file/d/<ID>/view?...
+    # - https://drive.google.com/open?id=<ID>
+    # - https://drive.google.com/uc?id=<ID>&export=download
+    m = re.search(r"/file/d/([a-zA-Z0-9_-]+)", url)
+    if m:
+        return m.group(1)
+    m = re.search(r"[?&]id=([a-zA-Z0-9_-]+)", url)
+    if m:
+        return m.group(1)
+    return None
+
+def _gdrive_download_url(file_id: str) -> str:
+    return f"https://drive.google.com/uc?export=download&id={file_id}"
+
+def download_to_path(url: str, dest_path: str, chunk_size: int = 1024 * 1024) -> None:
+    """
+    Download URL -> dest_path with streaming and Streamlit progress bar.
+    Supports Dropbox shared links + Google Drive shared links.
+    """
+    url = url.strip()
+
+    # Normalize Dropbox
+    url = _normalize_dropbox(url)
+
+    # Google Drive handling
+    fid = _gdrive_file_id(url)
+    if fid:
+        url = _gdrive_download_url(fid)
+
+    sess = requests.Session()
+
+    # First request (for GDrive it may respond with a confirm token)
+    r = sess.get(url, stream=True, allow_redirects=True)
+    r.raise_for_status()
+
+    # Google Drive "confirm download" token for large files
+    if "drive.google.com" in r.url or ("googleusercontent" not in r.url and fid):
+        confirm = None
+        for k, v in r.cookies.items():
+            if k.startswith("download_warning"):
+                confirm = v
+                break
+        if confirm and fid:
+            url2 = f"https://drive.google.com/uc?export=download&id={fid}&confirm={confirm}"
+            r = sess.get(url2, stream=True, allow_redirects=True)
+            r.raise_for_status()
+
+    total = r.headers.get("Content-Length")
+    total = int(total) if total is not None else None
+
+    progress = st.progress(0)
+    downloaded = 0
+
+    with open(dest_path, "wb") as f:
+        for chunk in r.iter_content(chunk_size=chunk_size):
+            if not chunk:
+                continue
+            f.write(chunk)
+            downloaded += len(chunk)
+            if total:
+                progress.progress(min(downloaded / total, 1.0))
+
+    progress.empty()

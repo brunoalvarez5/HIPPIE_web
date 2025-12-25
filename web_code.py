@@ -12,7 +12,7 @@ from bokeh.models import ColumnDataSource
 import tarfile
 from neurocurator import Neurocurator
 
-from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, acqm_file_reader, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters_kmeans, load_data_classifier, compue_the_clusters_labeled, compue_the_clusters_hdbscan, resize_rows_linear, acqm_file_reader_np
+from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, acqm_file_reader, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters_kmeans, load_data_classifier, compue_the_clusters_labeled, compue_the_clusters_hdbscan, resize_rows_linear, acqm_file_reader_np, download_to_path
 
 
 
@@ -236,7 +236,7 @@ token_phy = False
 
 uploading_option = st.radio(
     "Choose input method:",
-    ("Work with csv files", "Work with acqm.zip files", "Work with nwb files", "Work with phy files")
+    ("Work with csv files", "Work with acqm.zip files", "Work with nwb files", "Work with phy files", 'work with download link')
 )
 
 if uploading_option == "Work with csv files":
@@ -301,6 +301,41 @@ elif uploading_option == "Work with phy files":
     uploaded_isi_files = []
     uploaded_waveform_files = []
 
+elif uploading_option == "work with download link":
+    url = st.text_input("Paste a Google Drive or Dropbox direct link (share link is fine):")
+
+    file_kind = st.selectbox("What are you linking to?", ["acqm.zip", "nwb", "phy.zip"])
+    token_link = bool(url)
+
+    if token_link and st.button("Download and Process"):
+        suffix = ".zip" if "zip" in file_kind else ".nwb"
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp_path = tmp.name
+        
+        try:
+            download_to_path(url, tmp_path)
+
+            if file_kind=="acqm.zip":
+                acg_np, isi_np, wf_np = acqm_file_reader_np(tmp_path)
+            
+            elif file_kind=="nwb":
+                nc = Neurocurator()
+                nc.load_nwb_spike_times(tmp_path)
+                nc.load_nwb_waveforms(tmp_path, n_datapoints=50, candidates=("waveform_mean", "spike_waveforms"))
+
+                nc.isi_distribution = nc.compute_isi_distribution(time_window=100)
+                nc.acgs = nc.compute_autocorrelogram(nc.spike_times_train)
+            
+            elif file_kind=='phy.zip':
+                nc = Neurocurator()
+                nc.load_phy_curated(tmp_path)
+        
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
 
 if token_acqm or token_csv or token_nwb or token_phy:
 
