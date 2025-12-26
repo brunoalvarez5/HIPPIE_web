@@ -465,8 +465,8 @@ def _normalize_dropbox(url: str) -> str:
         url = re.sub(r"\?dl=\d", "?dl=1", url)
     return url
 
-def _gdrive_file_id(url: str) -> str | None:
-    # Handles formats:
+from typing import Optional
+def _gdrive_file_id(url: str) -> Optional[str]:    # Handles formats:
     # - https://drive.google.com/file/d/<ID>/view?...
     # - https://drive.google.com/open?id=<ID>
     # - https://drive.google.com/uc?id=<ID>&export=download

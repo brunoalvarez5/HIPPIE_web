@@ -233,6 +233,7 @@ token_csv = False
 token_acqm = False
 token_nwb = False
 token_phy = False
+token_link = False
 
 uploading_option = st.radio(
     "Choose input method:",
@@ -305,39 +306,11 @@ elif uploading_option == "work with download link":
     url = st.text_input("Paste a Google Drive or Dropbox direct link (share link is fine):")
 
     file_kind = st.selectbox("What are you linking to?", ["acqm.zip", "nwb", "phy.zip"])
-    token_link = bool(url)
+    
+    if len(url) > 0:
+        token_link = True
 
-    if token_link and st.button("Download and Process"):
-        suffix = ".zip" if "zip" in file_kind else ".nwb"
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp_path = tmp.name
-        
-        try:
-            download_to_path(url, tmp_path)
-
-            if file_kind=="acqm.zip":
-                acg_np, isi_np, wf_np = acqm_file_reader_np(tmp_path)
-            
-            elif file_kind=="nwb":
-                nc = Neurocurator()
-                nc.load_nwb_spike_times(tmp_path)
-                nc.load_nwb_waveforms(tmp_path, n_datapoints=50, candidates=("waveform_mean", "spike_waveforms"))
-
-                nc.isi_distribution = nc.compute_isi_distribution(time_window=100)
-                nc.acgs = nc.compute_autocorrelogram(nc.spike_times_train)
-            
-            elif file_kind=='phy.zip':
-                nc = Neurocurator()
-                nc.load_phy_curated(tmp_path)
-        
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
-
-if token_acqm or token_csv or token_nwb or token_phy:
+if token_acqm or token_csv or token_nwb or token_phy or token_link:
 
 
     if token_acqm:
@@ -491,6 +464,48 @@ if token_acqm or token_csv or token_nwb or token_phy:
 
         del acg_np, isi_np, wf_np, acg_all, isi_all, wf_all
         import gc; gc.collect()
+    
+    elif token_link:
+        
+        suffix = ".zip" if "zip" in file_kind else ".nwb"
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp_path = tmp.name
+        
+        try:
+            download_to_path(url, tmp_path)
+
+            if file_kind=="acqm.zip":
+                acg_np, isi_np, wf_np = acqm_file_reader_np(tmp_path)
+                df_acg = pd.DataFrame(acg_np)
+                df_isi = pd.DataFrame(isi_np)
+                df_waveforms = pd.DataFrame(wf_np)
+            
+            elif file_kind=="nwb":
+                nc = Neurocurator()
+                nc.load_nwb_spike_times(tmp_path)
+                nc.load_nwb_waveforms(tmp_path, n_datapoints=50, candidates=("waveform_mean", "spike_waveforms"))
+
+                nc.isi_distribution = nc.compute_isi_distribution(time_window=100)
+                nc.acgs = nc.compute_autocorrelogram(nc.spike_times_train)
+                df_acg = pd.DataFrame(nc.acgs.to_numpy(dtype=np.float32, copy=True))
+                df_isi = pd.DataFrame(nc.isi_distribution.to_numpy(dtype=np.float32, copy=True))
+                df_waveforms = pd.DataFrame(nc.waveforms.to_numpy(dtype=np.float32, copy=True))
+
+            
+            elif file_kind=='phy.zip':
+                nc = Neurocurator()
+                nc.load_phy_curated(tmp_path)
+                df_acg = pd.DataFrame(nc.acgs.to_numpy(dtype=np.float32, copy=True))
+                df_isi = pd.DataFrame(nc.isi_distribution.to_numpy(dtype=np.float32, copy=True))
+                df_waveforms = pd.DataFrame(nc.waveforms.to_numpy(dtype=np.float32, copy=True))
+
+        
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
 
 
     print("########################FILES LOADED#############################")
