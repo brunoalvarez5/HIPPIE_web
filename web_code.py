@@ -12,7 +12,7 @@ from bokeh.models import ColumnDataSource
 import tarfile
 from neurocurator import Neurocurator
 
-from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, acqm_file_reader, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters_kmeans, load_data_classifier, compue_the_clusters_labeled, compue_the_clusters_hdbscan, resize_rows_linear, acqm_file_reader_np, download_to_path
+from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters_kmeans, load_data_classifier, compue_the_clusters_labeled, compue_the_clusters_hdbscan, resize_rows_linear, acqm_file_reader_np, download_drive_file
 
 
 
@@ -473,7 +473,7 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
             tmp_path = tmp.name
         
         try:
-            download_to_path(url, tmp_path)
+            download_drive_file(url, tmp_path)
 
             if file_kind=="acqm.zip":
                 acg_np, isi_np, wf_np = acqm_file_reader_np(tmp_path)

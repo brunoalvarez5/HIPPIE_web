@@ -8,6 +8,7 @@ import tarfile
 import os
 import re
 import requests
+import gdown
 
 # def get_embeddings_multimodal(loader, model):
 #     import torch
@@ -458,6 +459,11 @@ def acqm_file_reader_np(tmp_file_path):
 
 
 #functions to work with files from drive and dropbox ahead
+
+
+def download_drive_file(url: str, out_path: str):
+    # gdown accepts either share URL or file id
+    gdown.download(url, out_path, quiet=False, fuzzy=True)
 
 def _normalize_dropbox(url: str) -> str:
     # Convert "...?dl=0" to direct download
