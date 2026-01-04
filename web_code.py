@@ -475,8 +475,15 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
         try:
             #to prevent from downloading the same file again and again with each iteratins, since streamlit re runs everything each time it access utils or the user touches something aparently
             from utils import _gdrive_download_url
-            fid = _gdrive_download_url(url) or "linked_file"
-            cache_path = f"/tmp/{fid}{suffix}"
+            fid = _gdrive_download_url(url)
+            if fid:
+                cache_path = f"/tmp/{fid}{suffix}"
+            else:
+                # non-drive links: use a simple hashed name
+                import hashlib
+                h = hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
+                cache_path = f"/tmp/{h}{suffix}"
+                            
             if not os.path.exists(cache_path) or os.path.getsize(cache_path) < 1024:
                 download_drive_file(url, tmp_path)
             
@@ -496,23 +503,23 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
                 nc.isi_distribution = nc.compute_isi_distribution(time_window=100)
                 nc.acgs = nc.compute_autocorrelogram(nc.spike_times_train)
                 df_acg = pd.DataFrame(nc.acgs.to_numpy(dtype=np.float32, copy=False))
-                df_isi = pd.DataFrame(nc.isi_distribution.to_numpy(dtype=np.float32, copy=True))
-                df_waveforms = pd.DataFrame(nc.waveforms.to_numpy(dtype=np.float32, copy=True))
+                df_isi = pd.DataFrame(nc.isi_distribution.to_numpy(dtype=np.float32, copy=False))
+                df_waveforms = pd.DataFrame(nc.waveforms.to_numpy(dtype=np.float32, copy=False))
 
             
             elif file_kind=='phy.zip':
                 nc = Neurocurator()
                 nc.load_phy_curated(tmp_path)
                 df_acg = pd.DataFrame(nc.acgs.to_numpy(dtype=np.float32, copy=False))
-                df_isi = pd.DataFrame(nc.isi_distribution.to_numpy(dtype=np.float32, copy=True))
-                df_waveforms = pd.DataFrame(nc.waveforms.to_numpy(dtype=np.float32, copy=True))
+                df_isi = pd.DataFrame(nc.isi_distribution.to_numpy(dtype=np.float32, copy=False))
+                df_waveforms = pd.DataFrame(nc.waveforms.to_numpy(dtype=np.float32, copy=False))
 
         
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+        # finally:
+        #     try:
+        #         os.unlink(tmp_path)
+        #     except Exception:
+        #         pass
 
 
     print("########################FILES LOADED#############################")
