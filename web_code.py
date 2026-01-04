@@ -474,10 +474,10 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
         
         try:
             #to prevent from downloading the same file again and again with each iteratins, since streamlit re runs everything each time it access utils or the user touches something aparently
-            from utils import _gdrive_download_url
-            fid = _gdrive_download_url(url)
+            from utils import _gdrive_download_url, _gdrive_file_id
+            fid = _gdrive_file_id(url)
             if fid:
-                cache_path = f"/tmp/{fid}{suffix}"
+                url = _gdrive_download_url(fid)
             else:
                 #non-drive links: use a simple hashed name
                 import hashlib
