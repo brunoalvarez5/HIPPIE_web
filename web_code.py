@@ -515,11 +515,11 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
                 df_waveforms = pd.DataFrame(nc.waveforms.to_numpy(dtype=np.float32, copy=False))
 
         
-        # finally:
-        #     try:
-        #         os.unlink(tmp_path)
-        #     except Exception:
-        #         pass
+        finally:
+            try:
+                 print("got here2")
+            except Exception:
+                 pass
 
 
 #print("########################FILES LOADED#############################")
