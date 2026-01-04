@@ -472,7 +472,7 @@ def _normalize_dropbox(url: str) -> str:
     return url
 
 from typing import Optional
-def _gdrive_file_id(url: str) -> str | None:
+def _gdrive_file_id(url: str) -> Optional[str]:
     # Supports:
     # https://drive.google.com/file/d/<ID>/view?...
     # https://drive.google.com/open?id=<ID>
