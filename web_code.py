@@ -477,7 +477,7 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
             from utils import _gdrive_download_url
             fid = _gdrive_download_url(url) or "linked_file"
             cache_path = f"/tmp/{fid}{suffix}"
-            if not os,path.exists(cache_path) or os.path.getsize(cache_path) < 1024:
+            if not os.path.exists(cache_path) or os.path.getsize(cache_path) < 1024:
                 download_drive_file(url, tmp_path)
             
             tmp_path = cache_path
