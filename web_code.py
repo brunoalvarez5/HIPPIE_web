@@ -522,7 +522,7 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
         #         pass
 
 
-    print("########################FILES LOADED#############################")
+#print("########################FILES LOADED#############################")
 #################################
 
 
