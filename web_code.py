@@ -473,7 +473,14 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
             tmp_path = tmp.name
         
         try:
-            download_drive_file(url, tmp_path)
+            #to prevent from downloading the same file again and again with each iteratins, since streamlit re runs everything each time it access utils or the user touches something aparently
+            from utils import _gdrive_download_url
+            fid = _gdrive_download_url(url) or "linked_file"
+            cache_path = f"/tmp/{fid}{suffix}"
+            if not os,path.exists(cache_path) or os.path.getsize(cache_path) < 1024:
+                download_drive_file(url, tmp_path)
+            
+            tmp_path = cache_path
 
             if file_kind=="acqm.zip":
                 acg_np, isi_np, wf_np = acqm_file_reader_np(tmp_path)
@@ -488,7 +495,7 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
 
                 nc.isi_distribution = nc.compute_isi_distribution(time_window=100)
                 nc.acgs = nc.compute_autocorrelogram(nc.spike_times_train)
-                df_acg = pd.DataFrame(nc.acgs.to_numpy(dtype=np.float32, copy=True))
+                df_acg = pd.DataFrame(nc.acgs.to_numpy(dtype=np.float32, copy=False))
                 df_isi = pd.DataFrame(nc.isi_distribution.to_numpy(dtype=np.float32, copy=True))
                 df_waveforms = pd.DataFrame(nc.waveforms.to_numpy(dtype=np.float32, copy=True))
 
@@ -496,7 +503,7 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
             elif file_kind=='phy.zip':
                 nc = Neurocurator()
                 nc.load_phy_curated(tmp_path)
-                df_acg = pd.DataFrame(nc.acgs.to_numpy(dtype=np.float32, copy=True))
+                df_acg = pd.DataFrame(nc.acgs.to_numpy(dtype=np.float32, copy=False))
                 df_isi = pd.DataFrame(nc.isi_distribution.to_numpy(dtype=np.float32, copy=True))
                 df_waveforms = pd.DataFrame(nc.waveforms.to_numpy(dtype=np.float32, copy=True))
 
