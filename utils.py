@@ -471,6 +471,13 @@ def _normalize_dropbox(url: str) -> str:
         url = re.sub(r"\?dl=\d", "?dl=1", url)
     return url
 
+def _gdrive_download_url(file_id: str) -> str:
+    # direct download endpoint (may still require confirm token for huge files,
+    # but your download code/gdown handles that)
+    return f"https://drive.google.com/uc?export=download&id={file_id}"
+
+
+
 from typing import Optional
 def _gdrive_file_id(url: str) -> Optional[str]:
     # Supports:

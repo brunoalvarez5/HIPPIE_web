@@ -475,18 +475,22 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
         try:
             #to prevent from downloading the same file again and again with each iteratins, since streamlit re runs everything each time it access utils or the user touches something aparently
             from utils import _gdrive_download_url, _gdrive_file_id
+            import hashlib
+            suffix = ".zip" if "zip" in file_kind else ".nwb"
+
+            # Make a deterministic cache path for ALL links
+            h = hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
+            cache_path = f"/tmp/{h}{suffix}"
+
+            # Normalize Drive links if possible
             fid = _gdrive_file_id(url)
             if fid:
                 url = _gdrive_download_url(fid)
-            else:
-                #non-drive links: use a simple hashed name
-                import hashlib
-                h = hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
-                cache_path = f"/tmp/{h}{suffix}"
-                            
-            if not os.path.exists(cache_path) or os.path.getsize(cache_path) < 1024:
-                download_drive_file(url, tmp_path)
-            
+
+            # Download only if not cached
+            if (not os.path.exists(cache_path)) or (os.path.getsize(cache_path) < 1024):
+                download_drive_file(url, cache_path)
+
             tmp_path = cache_path
 
             if file_kind=="acqm.zip":
