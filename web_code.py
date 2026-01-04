@@ -479,7 +479,7 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
             if fid:
                 cache_path = f"/tmp/{fid}{suffix}"
             else:
-                # non-drive links: use a simple hashed name
+                #non-drive links: use a simple hashed name
                 import hashlib
                 h = hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
                 cache_path = f"/tmp/{h}{suffix}"
@@ -516,10 +516,7 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
 
         
         finally:
-            try:
-                 print("got here2")
-            except Exception:
-                 pass
+            pass
 
 
 #print("########################FILES LOADED#############################")

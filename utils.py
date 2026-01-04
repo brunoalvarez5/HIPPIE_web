@@ -472,10 +472,11 @@ def _normalize_dropbox(url: str) -> str:
     return url
 
 from typing import Optional
-def _gdrive_file_id(url: str) -> Optional[str]:    # Handles formats:
-    # - https://drive.google.com/file/d/<ID>/view?...
-    # - https://drive.google.com/open?id=<ID>
-    # - https://drive.google.com/uc?id=<ID>&export=download
+def _gdrive_file_id(url: str) -> str | None:
+    # Supports:
+    # https://drive.google.com/file/d/<ID>/view?...
+    # https://drive.google.com/open?id=<ID>
+    # https://drive.google.com/uc?id=<ID>&export=download
     m = re.search(r"/file/d/([a-zA-Z0-9_-]+)", url)
     if m:
         return m.group(1)
@@ -484,8 +485,61 @@ def _gdrive_file_id(url: str) -> Optional[str]:    # Handles formats:
         return m.group(1)
     return None
 
-def _gdrive_download_url(file_id: str) -> str:
-    return f"https://drive.google.com/uc?export=download&id={file_id}"
+def _gdrive_download(url: str, out_path: str, timeout: int = 120):
+    file_id = _gdrive_file_id(url)
+    if not file_id:
+        raise ValueError("Could not extract Google Drive file id from URL.")
+
+    session = requests.Session()
+    base = "https://drive.google.com/uc?export=download"
+    r = session.get(base, params={"id": file_id}, stream=True, timeout=timeout)
+
+    # If large file, Drive sets a warning cookie that includes a confirm token
+    confirm = None
+    for k, v in r.cookies.items():
+        if k.startswith("download_warning"):
+            confirm = v
+            break
+
+    if confirm:
+        r = session.get(base, params={"id": file_id, "confirm": confirm}, stream=True, timeout=timeout)
+
+    r.raise_for_status()
+
+    # If we still got HTML, it’s not downloadable (permissions / wrong link)
+    ctype = (r.headers.get("Content-Type") or "").lower()
+    if "text/html" in ctype:
+        first = next(r.iter_content(chunk_size=512), b"")[:200]
+        raise ValueError(
+            "Google Drive returned HTML instead of the file. "
+            "The file is not publicly downloadable (or needs sign-in). "
+            f"First bytes: {first!r}"
+        )
+
+    with open(out_path, "wb") as f:
+        for chunk in r.iter_content(chunk_size=1024 * 1024):
+            if chunk:
+                f.write(chunk)
+
+def download_to_file(url: str, out_path: str):
+    # Decide by domain
+    if "drive.google.com" in url:
+        _gdrive_download(url, out_path)
+    else:
+        # your existing requests download here (or keep as-is)
+        r = requests.get(url, stream=True, timeout=120)
+        r.raise_for_status()
+        with open(out_path, "wb") as f:
+            for chunk in r.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    f.write(chunk)
+
+    # Validate if expecting zip
+    if out_path.endswith(".zip") and not zipfile.is_zipfile(out_path):
+        with open(out_path, "rb") as f:
+            head = f.read(200)
+        raise ValueError(f"Downloaded file is not a ZIP. First 200 bytes: {head!r}")
+
 
 def download_to_path(url: str, dest_path: str, chunk_size: int = 1024 * 1024) -> None:
     """
