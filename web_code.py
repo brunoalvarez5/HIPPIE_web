@@ -303,7 +303,7 @@ elif uploading_option == "Work with phy files":
     uploaded_waveform_files = []
 
 elif uploading_option == "work with download link":
-    url = st.text_input("Paste a Google Drive or Dropbox direct link (share link is fine):")
+    url = st.text_input("Paste a Google Drive direct link (share link is fine):")
 
     file_kind = st.selectbox("What are you linking to?", ["acqm.zip", "nwb", "phy.zip"])
     
