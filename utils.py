@@ -184,12 +184,12 @@ def HIPPIE(normalized_acg, normalized_isi, normalized_waveforms, source=None):
     wave = normalized_waveforms_numpy[:, np.newaxis, :]
 
     # Load ONNX model (load once and cache)
-    MODEL_PATH = os.path.join(os.path.dirname(__file__), "hippie_model_epoch=9-step=60.onnx")
+    MODEL_PATH = os.path.join(os.path.dirname(__file__), "epoch=35-step=468.onnx")
     session = ort.InferenceSession(MODEL_PATH)
 
 
 # ---- 4. Fix ACG length: model expects 200 ----
-    expected_acg_len = 200
+    expected_acg_len = 100
     current_acg_len = acg.shape[2]
 
     if current_acg_len != expected_acg_len:
