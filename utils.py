@@ -9,6 +9,8 @@ import os
 import re
 import requests
 import gdown
+import onnxruntime as ort
+
 
 # def get_embeddings_multimodal(loader, model):
 #     import torch
@@ -117,6 +119,30 @@ def plotter(data, title, x_label, y_label, selected_cluster=None, alpha_backgrou
     return p
 
 @st.cache_resource
+def get_ort_session():
+    """
+    Create and cache a single ONNX Runtime session.
+    This MUST NOT depend on data inputs.
+    """
+    model_path = os.path.join(
+        os.path.dirname(__file__),
+        "epoch=35-step=468.dynamic.onnx"
+    )
+
+    so = ort.SessionOptions()
+    so.intra_op_num_threads = 1
+    so.inter_op_num_threads = 1
+    so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+    return ort.InferenceSession(
+        model_path,
+        sess_options=so,
+        providers=["CPUExecutionProvider"],
+    )
+
+
+
+@st.cache_resource
 def load_model():
     #import model
     #create the base_model instance
@@ -157,75 +183,70 @@ def drop_nan_rows(*dfs):
     return [df[mask] for df in dfs]
 
 
-@st.cache_resource
-def HIPPIE(normalized_acg, normalized_isi, normalized_waveforms, source=None):
-    import onnxruntime as ort
-    """
-    Compute the embedding using ONNX model (no source input required).
-    """
-    # Pass all normalized datasets to numpy
-    normalized_acg_numpy = normalized_acg.values
-    normalized_isi_numpy = normalized_isi.values
-    normalized_waveforms_numpy = normalized_waveforms.values
+def HIPPIE(normalized_acg, normalized_isi, normalized_waveforms, source=None, chunk=512):
+    import numpy as np
 
-    # Remove invalid rows (NaN, Inf)
+    # Convert once (float32, no copy if possible)
+    acg_np  = normalized_acg.to_numpy(dtype=np.float32, copy=False)
+    isi_np  = normalized_isi.to_numpy(dtype=np.float32, copy=False)
+    wave_np = normalized_waveforms.to_numpy(dtype=np.float32, copy=False)
+
+    # Remove invalid rows
     valid_mask = (
-        ~np.isnan(normalized_acg_numpy).any(axis=1) & ~np.isinf(normalized_acg_numpy).any(axis=1) &
-        ~np.isnan(normalized_isi_numpy).any(axis=1) & ~np.isinf(normalized_isi_numpy).any(axis=1) &
-        ~np.isnan(normalized_waveforms_numpy).any(axis=1) & ~np.isinf(normalized_waveforms_numpy).any(axis=1)
+        np.isfinite(acg_np).all(axis=1) &
+        np.isfinite(isi_np).all(axis=1) &
+        np.isfinite(wave_np).all(axis=1)
     )
-    normalized_acg_numpy = normalized_acg_numpy[valid_mask]
-    normalized_isi_numpy = normalized_isi_numpy[valid_mask]
-    normalized_waveforms_numpy = normalized_waveforms_numpy[valid_mask]
+    acg_np  = acg_np[valid_mask]
+    isi_np  = isi_np[valid_mask]
+    wave_np = wave_np[valid_mask]
 
-    # ONNX model expects [batch, 1, features]
-    acg = normalized_acg_numpy[:, np.newaxis, :]
-    isi = normalized_isi_numpy[:, np.newaxis, :]
-    wave = normalized_waveforms_numpy[:, np.newaxis, :]
+    # add channel dim -> [batch, 1, features]
+    acg  = acg_np[:, None, :]
+    isi  = isi_np[:, None, :]
+    wave = wave_np[:, None, :]
 
-    # Load ONNX model (load once and cache)
-    MODEL_PATH = os.path.join(os.path.dirname(__file__), "epoch=35-step=468.onnx")
-    session = ort.InferenceSession(MODEL_PATH)
-
-
-# ---- 4. Fix ACG length: model expects 200 ----
+    # Fix ACG length if needed
     expected_acg_len = 100
-    current_acg_len = acg.shape[2]
-
-    if current_acg_len != expected_acg_len:
-        # Upsample along the last axis (simple linear interpolation)
+    cur_len = acg.shape[2]
+    if cur_len != expected_acg_len:
         N = acg.shape[0]
-        x_old = np.linspace(0.0, 1.0, current_acg_len)
+        x_old = np.linspace(0.0, 1.0, cur_len)
         x_new = np.linspace(0.0, 1.0, expected_acg_len)
-        acg_reshaped = np.empty((N, 1, expected_acg_len), dtype=np.float32)
+        acg_fixed = np.empty((N, 1, expected_acg_len), dtype=np.float32)
         for i in range(N):
-            # interpolate the 1D curve acg[i, 0, :]
-            acg_reshaped[i, 0, :] = np.interp(x_new, x_old, acg[i, 0, :])
-        acg = acg_reshaped
+            acg_fixed[i, 0, :] = np.interp(x_new, x_old, acg[i, 0, :]).astype(np.float32)
+        acg = acg_fixed
 
-    batch_size = acg.shape[0]
+    # Make labels
+    N = acg.shape[0]
+    source_labels = np.zeros((N,), dtype=np.int64)
+    class_labels  = np.zeros((N,), dtype=np.int64)
 
+    # Make contiguous (helps ORT + avoids hidden copies)
+    acg  = np.ascontiguousarray(acg)
+    isi  = np.ascontiguousarray(isi)
+    wave = np.ascontiguousarray(wave)
 
-    #make dummy labels
-    source_labels = np.zeros((acg.shape[0],), dtype=np.int64)
-    class_labels = np.zeros((acg.shape[0],), dtype=np.int64)
+    sess = get_ort_session()
 
-    # Prepare inputs (no source required!)
-    inputs = {
-        "wave": wave.astype(np.float32),
-        "isi": isi.astype(np.float32),
-        "acg": acg.astype(np.float32),
-        "source_labels": source_labels,
-        "class_labels": class_labels,
-    }
+    # Chunked inference
+    outs = []
+    for s in range(0, N, chunk):
+        feed = {
+            "wave": wave[s:s+chunk],
+            "isi": isi[s:s+chunk],
+            "acg": acg[s:s+chunk],
+            "source_labels": source_labels[s:s+chunk],
+            "class_labels": class_labels[s:s+chunk],
+        }
+        out = sess.run(["hippie_out"], feed)[0]
+        outs.append(out)
 
-    # Run inference
-    outputs = session.run(None, inputs)
-    embedding = outputs[0]
-    # For consistency, create dummy labels array if you still need labels
+    embedding = np.concatenate(outs, axis=0)
     labels = np.zeros((embedding.shape[0],), dtype=np.int64)
-
     return embedding, labels
+
 
 
 
