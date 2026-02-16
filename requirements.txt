@@ -1,9 +1,13 @@
+pip>=24
+setuptools>=70
+wheel
+
 # Streamlit
 streamlit==1.43.0
 
 # Core stack
 numpy==1.26.4
-scipy==1.13.1
+scipy==1.11.4
 pandas==1.5.3
 scikit-learn==1.2.2
 
