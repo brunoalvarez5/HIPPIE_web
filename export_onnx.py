@@ -1,67 +1,30 @@
 """
-Export hippie_techcond_v1.ckpt → hippie_techcond_v1.dynamic.onnx
+Export hippie_techcond_v1.ckpt -> hippie_techcond_v1.dynamic.onnx.
+
+Requires the ``hippie`` package from the HIPPIE release
+(``pip install -e .`` from the HIPPIE repository).
 
 Run from HIPPIE_web/:
     python export_onnx.py
 """
 
 import os
-import sys
 
 import numpy as np
 import torch
 import torch.nn as nn
 
+from hippie.checkpoint import build_model
+
 # Resolve paths relative to this script
-SCRIPT_DIR   = os.path.dirname(os.path.abspath(__file__))
-BENCH_DIR    = os.path.join(SCRIPT_DIR, "..", "hippie_benchmarking")
-CKPT_PATH    = os.path.join(BENCH_DIR, "huggingface", "hippie_techcond_v1.ckpt")
-OUTPUT_PATH  = os.path.join(SCRIPT_DIR, "hippie_techcond_v1.dynamic.onnx")
-
-sys.path.insert(0, BENCH_DIR)
-sys.path.insert(0, os.path.join(BENCH_DIR, "hippie"))
-sys.path.insert(0, os.path.join(BENCH_DIR, "scripts"))
-
-from hippie.multimodal_model import MultiModalCVAE, ExperimentConfigs
+SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
+BENCH_DIR   = os.path.join(SCRIPT_DIR, "..", "hippie_benchmarking")
+CKPT_PATH   = os.path.join(BENCH_DIR, "huggingface", "hippie_techcond_v1.ckpt")
+OUTPUT_PATH = os.path.join(SCRIPT_DIR, "hippie_techcond_v1.dynamic.onnx")
 
 
 # ---------------------------------------------------------------------------
-# Load checkpoint (mirrors extract_embeddings.py::build_model)
-# ---------------------------------------------------------------------------
-
-def infer_model_dims(state_dict):
-    src_key = next(k for k in state_dict if "source_embed" in k and "weight" in k)
-    num_sources = state_dict[src_key].shape[0]
-    cls_keys = [k for k in state_dict if "class_embed" in k and "weight" in k]
-    num_classes = state_dict[cls_keys[0]].shape[0] if cls_keys else 2
-    return num_sources, num_classes
-
-
-def build_model(ckpt_path):
-    ckpt = torch.load(ckpt_path, map_location="cpu")
-    sd = ckpt["state_dict"]
-    sd = {k.replace("model.", "", 1) if k.startswith("model.") else k: v for k, v in sd.items()}
-
-    num_sources, num_classes = infer_model_dims(sd)
-    print(f"  num_sources={num_sources}, num_classes={num_classes}")
-
-    model = MultiModalCVAE(
-        modalities={"wave": 50, "isi": 100, "acg": 100},
-        z_dim=30,
-        num_sources=num_sources,
-        num_classes=num_classes,
-        num_super_regions=0,
-        num_layers=0,
-        config=ExperimentConfigs.class_decoder_source_bn_aug_reg(),
-        backbone_base_width=64,
-    )
-    model.load_state_dict(sd, strict=False)
-    model.eval()
-    return model
-
-
-# ---------------------------------------------------------------------------
-# Thin wrapper: (wave, isi, acg, source_labels) → mu
+# Thin wrapper: (wave, isi, acg, source_labels) -> mu
 # ---------------------------------------------------------------------------
 
 class HIPPIEEncoder(nn.Module):
@@ -89,12 +52,12 @@ def main():
 
     # Dummy inputs (batch=2 so dynamic axis is exercised during tracing)
     B = 2
-    wave_d   = torch.zeros(B, 1, 50,  dtype=torch.float32)
-    isi_d    = torch.zeros(B, 1, 100, dtype=torch.float32)
-    acg_d    = torch.zeros(B, 1, 100, dtype=torch.float32)
-    src_d    = torch.zeros(B,         dtype=torch.long)
+    wave_d = torch.zeros(B, 1, 50,  dtype=torch.float32)
+    isi_d  = torch.zeros(B, 1, 100, dtype=torch.float32)
+    acg_d  = torch.zeros(B, 1, 100, dtype=torch.float32)
+    src_d  = torch.zeros(B,         dtype=torch.long)
 
-    print(f"Exporting → {OUTPUT_PATH}")
+    print(f"Exporting -> {OUTPUT_PATH}")
     with torch.no_grad():
         torch.onnx.export(
             wrapper,

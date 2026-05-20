@@ -142,39 +142,6 @@ def get_ort_session():
 
 
 
-@st.cache_resource
-def load_model():
-    #import model
-    #create the base_model instance
-    base_model = MultiModalCVAE(
-        modalities={
-            "wave": 50,
-            "isi": 100,
-            "acg": 100 #200 originaly, but we do interpolate to 100
-        },
-        z_dim=5,
-        class_hidden_dim=5,
-        num_sources=7,
-        num_classes=5
-    )
-
-    # Load the full module with the base_model
-    model = MultiModalCVAETrainModule.load_from_checkpoint(
-        "/home/bruno/Documentos/GitHub/HIPPIE_web/epoch=49-step=950.ckpt",
-        base_model=base_model,
-        modality_weights={
-            "wave": 1.0,
-            "isi": 1.0,
-            "acg": 1.0
-        },
-        learning_rate=1e-3,
-        weight_decay=1e-5,
-        beta=1.0
-    )
-
-
-    return model
-
 def drop_nan_rows(*dfs):
     """Drop rows with NaNs from all dataframes simultaneously"""
     mask = ~(np.isnan(dfs[0]).any(axis=1) | np.isinf(dfs[0]).any(axis=1))
