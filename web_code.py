@@ -572,12 +572,13 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
     #    mode='linear'
     #).squeeze(1).numpy()
 
-    # Technology conditioning for HIPPIE encoder (matches training vocabulary)
+    # Technology conditioning for HIPPIE encoder. Only the three classes
+    # below received gradients during pretraining (slot 3 was reserved
+    # but never populated, so we do not expose it here).
     TECHNOLOGY_OPTIONS = {
         "Neuropixels (1.0 / 2.0)":           0,  # IBL, Allen, Hausser, Hull, CellExplorer
         "Silicon probe (non-Neuropixels)":    1,  # NeuroNexus, Plexon s-Probe, etc.
         "Juxtacellular (glass micropipette)": 2,
-        "Tetrode":                            3,
     }
 
     source = TECHNOLOGY_OPTIONS[st.selectbox(
