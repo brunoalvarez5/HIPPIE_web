@@ -248,22 +248,6 @@ def compute_umap(data):
     return embedding
 
 
-@st.cache_resource
-def compute_pumap(embedding):
-    import onnxruntime as ort
-    model = ort.InferenceSession("Mark_VII_model.onnx")
-    input_name = model.get_inputs()[0].name
-
-    # #TODO run model
-    input = np.array(embedding, dtype=np.float32)
-    output = model.run(None, {input_name: input})[0]
-
-    output_array = np.array(output)
-
-    return output_array
-
-
-
 @st.cache_data
 def compue_the_clusters_labeled(output_array, num_neighbors, ct_a):
     from sklearn.neighbors import KNeighborsClassifier

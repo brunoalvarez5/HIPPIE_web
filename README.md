@@ -1,11 +1,55 @@
-This is the source code for the HIPPIE web. HIPPIE is a deep learning framework that classifies neurons from extracelular recordings, these recordings include waveforms and spiking dynamics. 
-The web is developed so that through a user friendly inteface users can submit data to ve processed HIPPIE and visualized.
+# HIPPIE Web
 
-It accepts 2 types of inputs, .csv files and .acqm files. For the .csv files it needs the acg (autocorrelograms), isi distribution and waveforms data in 3 different files, this files need to not have a header.
-In the case of the acqm files it only needs one containing all the date since it will later on be digested by a neurocurator to extract the needed information.
-The web will take care of everything and display the raw data followed by a parametric UMAP with the clusters computed. If the user already has its own cell types, a .csv file with those can be submited.
-After the PUMAP there is a section to visualize how data differes between clusters and the user can select which cluster to highlight.
-Also all the computed data and files can be downloaded in case the user wants to perform or make a deeper research.
+HIPPIE Web is a coding-free interface for embedding and clustering extracellular
+electrophysiology recordings. It wraps the HIPPIE deep-learning encoder behind a
+Streamlit application so that users can upload a recording, obtain a learned
+embedding, explore the resulting clusters, and inspect per-cluster physiology
+without writing any code.
 
-The code essentially ceners around the web_code.py file. This file executes and runs all the functions needed and some basic computations. The Neurocurator.py is a python script that digests the data from the 
-.acqm file so that it can be used. Then all the other functions are stored in the utils.py file.
+## Input modes
+
+The app accepts five kinds of input:
+
+1. **CSV** — three header-less CSV files containing the autocorrelogram (ACG),
+   inter-spike-interval (ISI) distribution, and waveform data, one file per modality.
+2. **ACQM zip** — a single ACQM archive that is parsed by the bundled neurocurator
+   to extract the waveform and spiking-dynamics features automatically.
+3. **NWB** — a Neurodata Without Borders file.
+4. **PHY / Kilosort output zip** — a zipped Kilosort/PHY sorting output.
+5. **Google Drive download link** — a shareable link to any of the file types above,
+   downloaded directly by the app.
+
+## Recording-technology selector
+
+Before processing, select the recording technology used to acquire the data:
+
+- Neuropixels (1.0 / 2.0)
+- Silicon probe (non-Neuropixels)
+- Juxtacellular (glass micropipette)
+
+This selection conditions the HIPPIE encoder so the embedding accounts for the
+acquisition technology.
+
+## What the app produces
+
+- A UMAP embedding of the recorded units, clustered with HDBSCAN.
+- Interactive cluster inspection: select a cluster to highlight it and view the
+  cluster-averaged waveform, ISI distribution, and ACG.
+- If you already have your own cell-type labels, you can upload them as a CSV.
+- All computed data and figures can be downloaded for further analysis.
+
+## Running locally
+
+```bash
+pip install -r requirements.txt
+streamlit run web_code.py
+```
+
+A hosted version of the app is also available, so no local installation is
+required to try it out.
+
+## Repository layout
+
+- `web_code.py` — the Streamlit application and the main processing flow.
+- `neurocurator.py` — parses ACQM recordings into the features HIPPIE expects.
+- `utils.py` — shared helpers for loading data, running the model, and clustering.

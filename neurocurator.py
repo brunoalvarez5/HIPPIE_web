@@ -552,7 +552,7 @@ class Neurocurator:
         """
         return self.connectivity_map
     
-    def calculate_average_sttc_SD(self, delta=10): #TODO: Change it to work with spike package from alex spaeth
+    def calculate_average_sttc_SD(self, delta=10): # TODO: integrate with the spike-processing package
         """
         Calculate average STTC of the neurons in the SpikeData object."""
         sttc = self.spike_times_train.spike_time_tilings(delt=delta)
@@ -562,7 +562,7 @@ class Neurocurator:
 
 
 
-    def calculate_firing_rate_SD(self, unit="Hz"): #TODO: Change it to work with spike package from alex spaeth
+    def calculate_firing_rate_SD(self, unit="Hz"): # TODO: integrate with the spike-processing package
         """
         Calculates the firing rate of the neurons in the Hippie object.
         """
@@ -571,7 +571,7 @@ class Neurocurator:
         self.metadata_obs["firing_rate"] = firing_rate
         return self.metadata_obs
 
-    def calculate_metadata_SD(self):#TODO: Change it to work with spike package from alex spaeth
+    def calculate_metadata_SD(self):# TODO: integrate with the spike-processing package
         """
         Calculates the metadata of the neurons in the Hippie object.
         """

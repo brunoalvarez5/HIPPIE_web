@@ -12,7 +12,7 @@ from bokeh.models import ColumnDataSource
 import tarfile
 from neurocurator import Neurocurator
 
-from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, csv_downloader, compute_pumap, HIPPIE, compue_the_clusters_kmeans, load_data_classifier, compue_the_clusters_labeled, compue_the_clusters_hdbscan, resize_rows_linear, acqm_file_reader_np, download_drive_file
+from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, csv_downloader, HIPPIE, compue_the_clusters_kmeans, load_data_classifier, compue_the_clusters_labeled, compue_the_clusters_hdbscan, resize_rows_linear, acqm_file_reader_np, download_drive_file
 
 
 
@@ -204,7 +204,7 @@ st.markdown("""
 
 
 st.title("Neural data visualizer")
-st.write("Upload your CSV data files and visualize them please")
+st.write("Upload a recording to begin.")
 
 
 
@@ -473,7 +473,7 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
             tmp_path = tmp.name
         
         try:
-            #to prevent from downloading the same file again and again with each iteratins, since streamlit re runs everything each time it access utils or the user touches something aparently
+            # Cache downloads so the same file is not re-fetched on every Streamlit rerun.
             from utils import _gdrive_download_url, _gdrive_file_id
             import hashlib
             suffix = ".zip" if "zip" in file_kind else ".nwb"
@@ -603,17 +603,6 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
     #also make it numpy arrays because MultiModalEphysDataset expects numPy arrays
     embedding, labels = HIPPIE(pd.DataFrame(acg_T), pd.DataFrame(isi_T), pd.DataFrame(wf_T), source)
     
-    ##################################################
-    #PUMAP
-    #loading the onnx model
-    #output_array = compute_pumap(embedding)
-
-    #x = list(range(len(output_array)))
-    #y = output_array[:, 0]
-
-    #source = ColumnDataSource(data=dict(x=x, y=y))
-    #output_array = pd.DataFrame(output_array, columns=['UMAP 1', 'UMAP 2'])
-    ################################################
 
 
     ##########################################################################
