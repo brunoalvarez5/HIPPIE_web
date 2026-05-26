@@ -414,6 +414,62 @@ def resize_rows_linear(arr: np.ndarray, out_len: int) -> np.ndarray:
         out[i] = np.interp(x_new, x_old, arr[i]).astype(np.float32)
     return out
 
+
+# ---------------------------------------------------------------------------
+# Canonical model-input preprocessing.
+#
+# These mirror the training / HuggingFace reference pipeline exactly
+# (hippie_huggingface/extract_embeddings.py): each modality is resampled to its
+# fixed length and min-max normalized per row to [-1, 1], with ISI additionally
+# log(x+1)-transformed first. The pretrained checkpoint was trained on inputs in
+# this representation, so anything fed to the encoder MUST be preprocessed the
+# same way; feeding raw resampled values produces out-of-distribution embeddings.
+#
+# Resampling reproduces torch ``F.interpolate(mode="linear", align_corners=False)``
+# (the convention used at training time) in pure NumPy, so the app stays
+# torch-free. Verified to match torch to float32 precision (~1e-5). This differs
+# from resize_rows_linear (align_corners=True), which is kept only for plotting.
+# ---------------------------------------------------------------------------
+def _resample_linear_align_false(arr: np.ndarray, out_len: int) -> np.ndarray:
+    """Per-row linear resample matching torch F.interpolate(align_corners=False)."""
+    arr = np.asarray(arr, dtype=np.float32)
+    n, in_len = arr.shape
+    if in_len == out_len:
+        return arr.copy()
+    scale = in_len / out_len
+    pos = (np.arange(out_len, dtype=np.float64) + 0.5) * scale - 0.5
+    pos = np.clip(pos, 0.0, in_len - 1)
+    left = np.floor(pos).astype(np.int64)
+    right = np.minimum(left + 1, in_len - 1)
+    frac = (pos - left).astype(np.float32)
+    return (arr[:, left] * (1.0 - frac) + arr[:, right] * frac).astype(np.float32)
+
+
+def _minmax_to_minus1_1(arr: np.ndarray) -> np.ndarray:
+    """Per-row min-max normalization to [-1, 1]."""
+    arr = np.asarray(arr, dtype=np.float32)
+    mn = arr.min(axis=1, keepdims=True)
+    mx = arr.max(axis=1, keepdims=True)
+    return ((arr - mn) / (mx - mn + 1e-8) * 2.0 - 1.0).astype(np.float32)
+
+
+def preprocess_waveforms_for_model(arr: np.ndarray) -> np.ndarray:
+    """Resample to 50 samples, then min-max normalize each row to [-1, 1]."""
+    return _minmax_to_minus1_1(_resample_linear_align_false(np.asarray(arr, dtype=np.float32), 50))
+
+
+def preprocess_isi_for_model(arr: np.ndarray) -> np.ndarray:
+    """log(x+1), resample to 100 bins, then min-max normalize each row to [-1, 1]."""
+    arr = np.nan_to_num(np.asarray(arr, dtype=np.float32), nan=0.0)
+    arr = np.log(arr + 1.0)
+    return _minmax_to_minus1_1(_resample_linear_align_false(arr, 100))
+
+
+def preprocess_acg_for_model(arr: np.ndarray) -> np.ndarray:
+    """Resample to 100 bins, then min-max normalize each row to [-1, 1]."""
+    arr = np.nan_to_num(np.asarray(arr, dtype=np.float32), nan=0.0)
+    return _minmax_to_minus1_1(_resample_linear_align_false(arr, 100))
+
 @st.cache_data
 def acqm_file_reader_np(tmp_file_path):
     from neurocurator import Neurocurator

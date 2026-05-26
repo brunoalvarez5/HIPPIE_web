@@ -18,16 +18,17 @@ from pynwb import NWBHDF5IO
 class Neurocurator:
     def __init__(self):
         """
-        Initializes a Hippie object with the given waveforms and spike times.
-        waveforms: a pandas dataframe with columns representing waveform points and rows representing units
-        spike_times: spikeData object from braingeneerspy
+        Feature-extraction engine for the HIPPIE web app. Parses ACQM,
+        PHY/Kilosort, and NWB inputs into the three per-unit modalities the
+        model consumes (mean waveform, ISI distribution, autocorrelogram).
+
+        Attributes:
+        waveforms: pandas dataframe with columns representing waveform points and rows representing units
+        spike_times_train: list of per-unit spike-time arrays (ms)
         sampling_rate: the sampling rate of the data
         metadata_obs: a pandas dataframe with metadata of the neurons
         isi_distribution: a pandas dataframe with the interspike interval distribution of the neurons
-        waveform_embeddings: a pandas dataframe with the waveform embeddings of the neurons
-        isi_distribution_embedding: a pandas dataframe with the interspike interval distribution embeddings of the neurons
-        waveform_umap: a pandas dataframe with the waveform umap of the neurons
-        isi_distribution_umap: a pandas dataframe with the interspike interval distribution umap of the neurons
+        acgs: a pandas dataframe with the autocorrelogram of the neurons
         """
         self.waveforms = None
         self.spike_times_train = None
@@ -38,7 +39,6 @@ class Neurocurator:
         self.acgs = None
         self.embeddings = None
         self.umap = None
-        # self.connectivity_map = None
 
     def load_curation_file(self, qm_path):
         """Load data from a curation file."""
@@ -77,7 +77,7 @@ class Neurocurator:
 
     def load_acqm(self, acqm_path):
         """
-        Reads the acqm file and returns the waveforms and spike times of the neurons in the Hippie object.
+        Reads the acqm file and returns the waveforms and spike times of the neurons in the Neurocurator object.
         """
         train, neuron_data, config, fs = self.load_curation_file(acqm_path)
         # Sampling rate just in case
@@ -102,7 +102,7 @@ class Neurocurator:
         
     def extract_waveforms(self, neuron_data, n_datapoints=50):
         """
-        Extracts the waveforms of the neurons in the Hippie object.
+        Extracts the waveforms of the neurons in the Neurocurator object.
         """
         datapoints_before = int(n_datapoints / 5 * 2)
         datapoints_after = n_datapoints - datapoints_before
@@ -118,7 +118,7 @@ class Neurocurator:
                 mean_waveform = np.mean(neuron_waveforms, axis=0)
                 # Add mean waveform to dataframe
                 neuron_array.append(mean_waveform)
-            except:
+            except Exception:
                 neuron_waveforms = neuron["template"]
                 neuron_flag = "template"
                 neuron_array.append(neuron_waveforms)
@@ -136,7 +136,7 @@ class Neurocurator:
                 neuron_cut.append(
                     neuron[min_idx - datapoints_before : min_idx + datapoints_after]
                 )
-            except:
+            except Exception:
                 # If it goes out of bounds we will interpolate the waveform but now just fill with zeros
                 neuron_cut.append(np.zeros(n_datapoints))
 
@@ -145,7 +145,7 @@ class Neurocurator:
 
     def extract_neuron_positions(self, neuron_data):
         """
-        Extracts the position of the neurons in the Hippie object.
+        Extracts the position of the neurons in the Neurocurator object.
         """
         position_array = []
         metadata = pd.DataFrame()
@@ -180,7 +180,7 @@ class Neurocurator:
 
     def compute_all_isis(self, spike_times_train):
         """
-        Calculates the interspike intervals of the neurons in the Hippie object.
+        Calculates the interspike intervals of the neurons in the Neurocurator object.
         Returns:
         isi: a list of numpy arrays with the interspike intervals of the neurons
         """
@@ -201,7 +201,7 @@ class Neurocurator:
 
     def compute_isi_distribution(self, time_window=100):
         """
-        Extracts the interspike interval distribution of the neurons in the Hippie object.
+        Extracts the interspike interval distribution of the neurons in the Neurocurator object.
         time_window: the time window in which to calculate the interspike interval distribution in milliseconds
         It will create a histogram with 1 ms bins
         """
@@ -367,8 +367,7 @@ class Neurocurator:
 
     def compute_waveform_features(self, waveform, mid=20, right_only=True, fs=20000.0):
         """
-        From Sury's code
-        measure the waveform features for both positive
+        Measure the waveform features for both positive
         and negative spikes.
         waveform: a list or array of waveform
         mid: the index of the trough
@@ -443,10 +442,10 @@ class Neurocurator:
             inter_2 = None  # or some other appropriate value
 
         fwhm_x = np.array([inter_1, inter_2])
-        # Breaking :(
+        # inter_1/inter_2 can be None when the half-amplitude crossing is undefined
         try:
             fwhm = (abs(inter_2) - abs(inter_1)) / (fs / 1000)
-        except:
+        except Exception:
             fwhm = 0
         # print(f"fwhm {fwhm} ms")
         features = {
@@ -460,7 +459,7 @@ class Neurocurator:
 
     def compute_all_waveform_features(self):
         """
-        Calculates the waveform features of the neurons in the Hippie object.
+        Calculates the waveform features of the neurons in the Neurocurator object.
 
         """
         waveforms_lpeak = []
@@ -486,7 +485,7 @@ class Neurocurator:
 
     def compute_firing_rate(self):
         """
-        Calculates the most basic type of firing rate of the neurons in the Hippie object.
+        Calculates the most basic type of firing rate of the neurons in the Neurocurator object.
         """
         spike_train = self.spike_times_train
         firing_rate = []
@@ -497,7 +496,7 @@ class Neurocurator:
     
     def compute_minimum_isi(self):
         """
-        Calculates the minimum interspike interval of the neurons in the Hippie object.
+        Calculates the minimum interspike interval of the neurons in the Neurocurator object.
         """
         spike_train = self.spike_times_train
         minimum_isi = []
@@ -510,7 +509,7 @@ class Neurocurator:
 
     def set_experiment_condition(self, column_name, condition):
         """
-        Sets the biological batch of the neurons in the Hippie object.
+        Sets the biological batch of the neurons in the Neurocurator object.
         """
         self.metadata_obs[column_name] = condition
 
@@ -530,58 +529,7 @@ class Neurocurator:
             print(f"Warning: The following data structures are missing or empty: {', '.join(missing)}")
             
         return all(validation_results.values())
-    
-    def get_waveform_embeddings(self):
-        return self.waveform_embeddings
 
-    def get_isi_distribution_embedding(self):
-        return self.isi_distribution_embedding
-
-    def get_waveform_umap(self):
-        return self.waveform_umap
-
-    def get_isi_distribution_umap(self):
-        return self.isi_distribution_umap
-
-    def get_connectivity_map(self):
-        """
-        Returns the connectivity map of the neurons in the Hippie object. The connectivity map is a pandas dataframe with the following columns:
-        - neuron1: the id of the first neuron
-        - neuron2: the id of the second neuron
-        - weight: the weight of the connection between the two neurons
-        """
-        return self.connectivity_map
-    
-    def calculate_average_sttc_SD(self, delta=10): # TODO: integrate with the spike-processing package
-        """
-        Calculate average STTC of the neurons in the SpikeData object."""
-        sttc = self.spike_times_train.spike_time_tilings(delt=delta)
-        mean_sttc = np.mean(sttc, axis=0)
-        self.metadata_obs["avg_sttc"] = mean_sttc
-        return self.metadata_obs
-
-
-
-    def calculate_firing_rate_SD(self, unit="Hz"): # TODO: integrate with the spike-processing package
-        """
-        Calculates the firing rate of the neurons in the Hippie object.
-        """
-        # Calculate firing rate
-        firing_rate = self.spike_times_train.rates(unit)
-        self.metadata_obs["firing_rate"] = firing_rate
-        return self.metadata_obs
-
-    def calculate_metadata_SD(self):# TODO: integrate with the spike-processing package
-        """
-        Calculates the metadata of the neurons in the Hippie object.
-        """
-        # Add column with average sttc
-        self.calculate_average_sttc()
-        # Add column with average firing rate
-        self.calculate_firing_rate()
-        # Add column with waveform features
-        self.compute_all_waveform_features()
-    
     def load_nwb_spike_times(self, nwb_path):
         with NWBHDF5IO(nwb_path, "r", load_namespaces=True) as io:
             nwb = io.read()

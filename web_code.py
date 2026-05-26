@@ -12,7 +12,7 @@ from bokeh.models import ColumnDataSource
 import tarfile
 from neurocurator import Neurocurator
 
-from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, csv_downloader, HIPPIE, compue_the_clusters_kmeans, load_data_classifier, compue_the_clusters_labeled, compue_the_clusters_hdbscan, resize_rows_linear, acqm_file_reader_np, download_drive_file
+from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, csv_downloader, HIPPIE, compue_the_clusters_kmeans, load_data_classifier, compue_the_clusters_labeled, compue_the_clusters_hdbscan, resize_rows_linear, acqm_file_reader_np, download_drive_file, preprocess_waveforms_for_model, preprocess_isi_for_model, preprocess_acg_for_model
 
 
 
@@ -518,9 +518,13 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
                 df_isi = pd.DataFrame(nc.isi_distribution.to_numpy(dtype=np.float32, copy=False))
                 df_waveforms = pd.DataFrame(nc.waveforms.to_numpy(dtype=np.float32, copy=False))
 
-        
-        finally:
-            pass
+        except Exception as e:
+            st.error(
+                "Could not download or read the file from the provided link. "
+                "Check that the link is public and points to a valid "
+                f"{file_kind} file.\n\nDetails: {e}"
+            )
+            st.stop()
 
 
 #print("########################FILES LOADED#############################")
@@ -554,24 +558,6 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
     
 
         
-    #resized_acg_a = F.interpolate(
-    #    torch.tensor(acg_a.values, dtype=torch.float32).unsqueeze(1),
-    #    size=100,
-    #    mode='linear'
-    #).squeeze(1).numpy()
-    #        
-    #resized_isi_a = F.interpolate(
-    #            torch.tensor(isi_a.values, dtype=torch.float32).unsqueeze(1),
-    #            size=100,
-    #            mode='linear'
-    #        ).squeeze(1).numpy()
-    #    
-    #resized_wf_a = F.interpolate(
-    #    torch.tensor(wf_a.values, dtype=torch.float32).unsqueeze(1),
-    #    size=50,
-    #    mode='linear'
-    #).squeeze(1).numpy()
-
     # Technology conditioning for HIPPIE encoder. Only the three classes
     # below received gradients during pretraining (slot 3 was reserved
     # but never populated, so we do not expose it here).
@@ -588,15 +574,14 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
              "This conditions the HIPPIE encoder on recording technology.",
     )]
 
-    #get HIPPIE embedings
-
-    #THIS USED TO JOIN THE UNDERNEATH DATASET TO ADD CELLTYPES WHEN NO FILE PROVIDED
-    #acg_T = pd.concat([pd.DataFrame(resized_acg_a), pd.DataFrame(resized_acg)], ignore_index=True)
-    #isi_T = pd.concat([pd.DataFrame(resized_isi_a), pd.DataFrame(resized_isi)], ignore_index=True)
-    #wf_T = pd.concat([pd.DataFrame(resized_wf_a), pd.DataFrame(resized_waveforms)], ignore_index=True)
-    acg_T = resized_acg
-    isi_T = resized_isi
-    wf_T = resized_waveforms
+    # Preprocess exactly as during training (see Methods) and the HuggingFace
+    # reference (extract_embeddings.py): waveform resampled to 50 and min-max
+    # scaled to [-1, 1]; ISI log(x+1)-transformed, resampled to 100, and min-max
+    # scaled; ACG resampled to 100 and min-max scaled. The `normalized_*` arrays
+    # plotted above are for display only and are NOT what the encoder consumes.
+    acg_T = preprocess_acg_for_model(df_acg.values)
+    isi_T = preprocess_isi_for_model(df_isi.values)
+    wf_T  = preprocess_waveforms_for_model(df_waveforms.values)
 
 
     #create a multimodal dataset with all modalities
