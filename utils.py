@@ -76,7 +76,6 @@ def plot_lines(ploted_obj, data, color, alpha, line_width):
 
 
 
-@st.cache_resource
 def plotter(data, title, x_label, y_label, selected_cluster=None, alpha_background=0.5, alpha_upfront=0.8, line_width_background=0.3, line_width_upfront=0.5):
     from bokeh.plotting import figure
     from bokeh.models import HoverTool

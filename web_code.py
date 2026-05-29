@@ -750,10 +750,10 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
 
 
     elif uploaded_file_cell_type is not None:
-        for x in output_array['Classifier'].unique():
-            acg_mean_list.append(np.mean(acg_types[acg_types['Classifier']==x].drop(columns='Classifier'), axis=0))
-            isi_mean_list.append(np.mean(isi_types[isi_types['Classifier']==x].drop(columns='Classifier'), axis=0))
-            wf_mean_list.append(np.mean(waveforms_types[waveforms_types['Classifier']==x].drop(columns='Classifier'), axis=0))
+        for x in output_array['Cluster'].unique():
+            acg_mean_list.append(np.mean(acg_types[acg_types['Cluster']==x].drop(columns='Cluster'), axis=0))
+            isi_mean_list.append(np.mean(isi_types[isi_types['Cluster']==x].drop(columns='Cluster'), axis=0))
+            wf_mean_list.append(np.mean(waveforms_types[waveforms_types['Cluster']==x].drop(columns='Cluster'), axis=0))
 
             cluster_labels.append(x)
         
