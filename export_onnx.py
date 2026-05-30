@@ -16,10 +16,14 @@ import torch.nn as nn
 
 from hippie.checkpoint import build_model
 
-# Resolve paths relative to this script
+# Resolve paths relative to this script. The source checkpoint is the same one
+# published on the HuggingFace Hub (Jesusgf23/hippie); point CKPT_PATH at a local
+# copy of hippie_techcond_v1.ckpt (override via the HIPPIE_CKPT env var).
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
-BENCH_DIR   = os.path.join(SCRIPT_DIR, "..", "hippie_benchmarking")
-CKPT_PATH   = os.path.join(BENCH_DIR, "huggingface", "hippie_techcond_v1.ckpt")
+CKPT_PATH   = os.environ.get(
+    "HIPPIE_CKPT",
+    os.path.join(SCRIPT_DIR, "..", "hippie_huggingface", "hippie_techcond_v1.ckpt"),
+)
 OUTPUT_PATH = os.path.join(SCRIPT_DIR, "hippie_techcond_v1.dynamic.onnx")
 
 
