@@ -778,6 +778,21 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
 
     cluster_col = 'Classifier' if uploaded_file_cell_type is None else 'Cluster'
 
+    if sampling_rate_hz is None:
+        sampling_rate_hz = st.number_input(
+            "Recording sampling rate (Hz)",
+            min_value=1000.0,
+            max_value=200000.0,
+            value=30000.0,
+            step=1000.0,
+            help=(
+                "Sampling rate of the source recording. Used to express "
+                "halfwidth, trough-to-peak, slopes, and recovery times in ms. "
+                "We could not detect it from the upload — enter the value used "
+                "by your recording system (Neuropixels 1.0/2.0 = 30000 Hz)."
+            ),
+        )
+
     metrics_df = compute_per_unit_table(
         waveforms_raw, spike_times_sec, sampling_rate_hz=sampling_rate_hz,
     )
@@ -794,12 +809,6 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
         st.info(
             "Spike times not available for this upload type — "
             "showing waveform metrics only."
-        )
-    if sampling_rate_hz is None:
-        st.info(
-            "Sampling rate not detected — waveform metrics in physical units "
-            "(halfwidth_ms, trough_to_peak_ms, slopes, recovery times) are "
-            "omitted from this plot."
         )
 
     selected_metrics = st.multiselect(
