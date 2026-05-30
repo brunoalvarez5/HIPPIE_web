@@ -76,6 +76,54 @@ def plot_lines(ploted_obj, data, color, alpha, line_width):
 
 
 
+def plotter_mean_std(
+    mean_df, std_df, title, x_label, y_label, selected_cluster=None,
+    alpha_band_background=0.10, alpha_line_background=0.55, line_width_background=1.0,
+    alpha_band_upfront=0.28, alpha_line_upfront=1.0, line_width_upfront=3.0,
+):
+    """Per-cluster mean line with a ±1 std shaded band.
+
+    mean_df / std_df: rows = clusters, cols = timepoints + 'Classifier'.
+    The 'Classifier' column carries the cluster label per row.
+    """
+    from bokeh.plotting import figure
+    from bokeh.models import HoverTool
+
+    p = figure(
+        title=title, x_axis_label=x_label, y_axis_label=y_label,
+        width=800, height=800, tools='pan,wheel_zoom,box_zoom,reset',
+    )
+    p.background_fill_color = None
+    p.border_fill_color = None
+    p.xaxis.major_label_text_color = "white"
+    p.yaxis.major_label_text_color = "white"
+    p.xaxis.axis_label_text_color = "white"
+    p.yaxis.axis_label_text_color = "white"
+    p.title.text_color = "white"
+    p.add_tools(HoverTool(tooltips=[("x", "$x"), ("y", "$y")]))
+
+    labels = mean_df['Classifier'].tolist()
+    mean_vals = mean_df.drop('Classifier', axis=1).values
+    std_vals = std_df.drop('Classifier', axis=1).values
+    x = list(range(mean_vals.shape[1]))
+
+    for i, label in enumerate(labels):
+        is_selected = (selected_cluster is not None) and (label == selected_cluster)
+        color = "#00D8FF" if is_selected else "#FFB000"
+        band_alpha = alpha_band_upfront if is_selected else alpha_band_background
+        line_alpha = alpha_line_upfront if is_selected else alpha_line_background
+        line_w = line_width_upfront if is_selected else line_width_background
+
+        upper = (mean_vals[i] + std_vals[i]).tolist()
+        lower = (mean_vals[i] - std_vals[i]).tolist()
+        p.varea(x=x, y1=lower, y2=upper, fill_color=color, fill_alpha=band_alpha)
+        p.line(x=x, y=mean_vals[i].tolist(), line_color=color,
+               line_alpha=line_alpha, line_width=line_w)
+
+    return p
+
+
+@st.cache_resource
 def plotter(data, title, x_label, y_label, selected_cluster=None, alpha_background=0.5, alpha_upfront=0.8, line_width_background=0.3, line_width_upfront=0.5):
     from bokeh.plotting import figure
     from bokeh.models import HoverTool
@@ -479,8 +527,9 @@ def acqm_file_reader_np(tmp_file_path):
     acg = reader.acgs.to_numpy(dtype=np.float32, copy=True)
     isi = reader.isi_distribution.to_numpy(dtype=np.float32, copy=True)
     wf  = reader.waveforms.to_numpy(dtype=np.float32, copy=True)
+    fs  = float(reader.sampling_rate) if reader.sampling_rate else None
 
-    return acg, isi, wf
+    return acg, isi, wf, fs
 
 
 

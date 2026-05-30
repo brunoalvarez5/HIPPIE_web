@@ -12,7 +12,8 @@ from bokeh.models import ColumnDataSource
 import tarfile
 from neurocurator import Neurocurator
 
-from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, compute_umap, csv_downloader, HIPPIE, compue_the_clusters_kmeans, load_data_classifier, compue_the_clusters_labeled, compue_the_clusters_hdbscan, resize_rows_linear, acqm_file_reader_np, download_drive_file, preprocess_waveforms_for_model, preprocess_isi_for_model, preprocess_acg_for_model
+from utils import normalize_to_minus1_1, normalize_by_row_max, plotter, plotter_mean_std, compute_umap, csv_downloader, HIPPIE, compue_the_clusters_kmeans, load_data_classifier, compue_the_clusters_labeled, compue_the_clusters_hdbscan, resize_rows_linear, acqm_file_reader_np, download_drive_file, preprocess_waveforms_for_model, preprocess_isi_for_model, preprocess_acg_for_model
+from metrics import compute_per_unit_table, CURATED_METRICS
 
 
 
@@ -312,6 +313,15 @@ elif uploading_option == "work with download link":
 
 if token_acqm or token_csv or token_nwb or token_phy or token_link:
 
+    # Per-unit raw inputs preserved for the downstream metrics section.
+    # spike_times_sec stays None for acqm / csv / link-acqm paths (no spike-time
+    # source in those loaders); NWB / Phy paths fill it from nc.spike_times_train.
+    spike_times_sec = None
+    # Sampling rate is required to express waveform halfwidth, trough-to-peak,
+    # and slopes in physical units (ms, units/ms). NaN-out those columns when
+    # we cannot recover it (CSV uploads, or NWBs without waveform_rate /
+    # ElectricalSeries.rate).
+    sampling_rate_hz = None
 
     if token_acqm:
         acg_parts = []
@@ -326,12 +336,14 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
                 tmp_path = tmp_file.name
 
             try:
-                acg_np, isi_np, wf_np = acqm_file_reader_np(tmp_path)
+                acg_np, isi_np, wf_np, fs = acqm_file_reader_np(tmp_path)
 
                 #store the results without concatenating yet
                 acg_parts.append(acg_np)
                 isi_parts.append(isi_np)
                 wf_parts.append(wf_np)
+                if sampling_rate_hz is None and fs:
+                    sampling_rate_hz = fs
 
             finally:
 
@@ -389,6 +401,7 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
         acg_np = []
         isi_np = []
         wf_np  = []
+        spike_parts = []
 
         for uploaded_file in nwb_uploaded:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".nwb") as tmp_file:
@@ -407,6 +420,13 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
                 acg_np.append(nc.acgs.to_numpy(dtype=np.float32, copy=True))
                 isi_np.append(nc.isi_distribution.to_numpy(dtype=np.float32, copy=True))
                 wf_np.append(nc.waveforms.to_numpy(dtype=np.float32, copy=True))
+                # spike_times_train is in milliseconds; metrics.py expects seconds.
+                spike_parts.append([
+                    np.asarray(s, dtype=np.float64) / 1000.0
+                    for s in nc.spike_times_train
+                ])
+                if sampling_rate_hz is None and nc.sampling_rate:
+                    sampling_rate_hz = float(nc.sampling_rate)
 
             finally:
                 try:
@@ -423,8 +443,9 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
         df_acg = pd.DataFrame(acg_all)
         df_isi = pd.DataFrame(isi_all)
         df_waveforms = pd.DataFrame(wf_all)
+        spike_times_sec = [u for file_units in spike_parts for u in file_units]
 
-        del acg_np, isi_np, wf_np, acg_all, isi_all, wf_all
+        del acg_np, isi_np, wf_np, acg_all, isi_all, wf_all, spike_parts
         import gc; gc.collect()
 
     
@@ -432,6 +453,7 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
         acg_np = []
         isi_np = []
         wf_np  = []
+        spike_parts = []
 
         for uploaded_file in phy_uploaded:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_file:
@@ -445,6 +467,12 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
                 acg_np.append(nc.acgs.to_numpy(dtype=np.float32, copy=True))
                 isi_np.append(nc.isi_distribution.to_numpy(dtype=np.float32, copy=True))
                 wf_np.append(nc.waveforms.to_numpy(dtype=np.float32, copy=True))
+                spike_parts.append([
+                    np.asarray(s, dtype=np.float64) / 1000.0
+                    for s in nc.spike_times_train
+                ])
+                if sampling_rate_hz is None and nc.sampling_rate:
+                    sampling_rate_hz = float(nc.sampling_rate)
 
             finally:
                 try:
@@ -461,8 +489,9 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
         df_acg = pd.DataFrame(acg_all, columns=[f"acg_{i}" for i in range(acg_all.shape[1])])
         df_isi = pd.DataFrame(isi_all, columns=[f"isi_{i}" for i in range(isi_all.shape[1])])
         df_waveforms = pd.DataFrame(wf_all, columns=[f"wf_{i}" for i in range(wf_all.shape[1])])
+        spike_times_sec = [u for file_units in spike_parts for u in file_units]
 
-        del acg_np, isi_np, wf_np, acg_all, isi_all, wf_all
+        del acg_np, isi_np, wf_np, acg_all, isi_all, wf_all, spike_parts
         import gc; gc.collect()
     
     elif token_link:
@@ -494,11 +523,13 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
             tmp_path = cache_path
 
             if file_kind=="acqm.zip":
-                acg_np, isi_np, wf_np = acqm_file_reader_np(tmp_path)
+                acg_np, isi_np, wf_np, fs = acqm_file_reader_np(tmp_path)
                 df_acg = pd.DataFrame(acg_np)
                 df_isi = pd.DataFrame(isi_np)
                 df_waveforms = pd.DataFrame(wf_np)
-            
+                if fs:
+                    sampling_rate_hz = fs
+
             elif file_kind=="nwb":
                 nc = Neurocurator()
                 nc.load_nwb_spike_times(tmp_path)
@@ -509,14 +540,26 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
                 df_acg = pd.DataFrame(nc.acgs.to_numpy(dtype=np.float32, copy=False))
                 df_isi = pd.DataFrame(nc.isi_distribution.to_numpy(dtype=np.float32, copy=False))
                 df_waveforms = pd.DataFrame(nc.waveforms.to_numpy(dtype=np.float32, copy=False))
+                spike_times_sec = [
+                    np.asarray(s, dtype=np.float64) / 1000.0
+                    for s in nc.spike_times_train
+                ]
+                if nc.sampling_rate:
+                    sampling_rate_hz = float(nc.sampling_rate)
 
-            
+
             elif file_kind=='phy.zip':
                 nc = Neurocurator()
                 nc.load_phy_curated(tmp_path)
                 df_acg = pd.DataFrame(nc.acgs.to_numpy(dtype=np.float32, copy=False))
                 df_isi = pd.DataFrame(nc.isi_distribution.to_numpy(dtype=np.float32, copy=False))
                 df_waveforms = pd.DataFrame(nc.waveforms.to_numpy(dtype=np.float32, copy=False))
+                spike_times_sec = [
+                    np.asarray(s, dtype=np.float64) / 1000.0
+                    for s in nc.spike_times_train
+                ]
+                if nc.sampling_rate:
+                    sampling_rate_hz = float(nc.sampling_rate)
 
         except Exception as e:
             st.error(
@@ -530,34 +573,16 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
 #print("########################FILES LOADED#############################")
 #################################
 
+    # Raw (non-normalised) waveform per unit, kept for downstream scalar metrics.
+    waveforms_raw = df_waveforms.to_numpy(dtype=np.float32, copy=True)
+
+
+    normalized_acg = normalize_to_minus1_1(df_acg)
+    normalized_isi = normalize_by_row_max(df_isi)
+    normalized_waveforms = normalize_to_minus1_1(df_waveforms)
 
 
 
-###################################
-    col1, col2, col3 = st.columns(3)
-    with col1:
-    #acg file
-        resized_acg = resize_rows_linear(df_acg.values, 100)
-        normalized_acg = normalize_to_minus1_1(df_acg)
-        p = plotter(normalized_acg, 'ACG', 'Timepoint', 'Amplitude')
-        st.bokeh_chart(p, use_container_width=True)
-
-    with col2:
-    #isi plot
-        resized_isi = resize_rows_linear(df_isi.values, 100)
-        normalized_isi = normalize_by_row_max(df_isi)
-        p = plotter(normalized_isi, 'ISI distribution', 'Timepoint', 'Amplitude')
-        st.bokeh_chart(p, use_container_width=True)
-    
-    with col3:
-    #waveforms plot
-        resized_waveforms = resize_rows_linear(df_waveforms.values, 50)
-        normalized_waveforms = normalize_to_minus1_1(df_waveforms)
-        p = plotter(normalized_waveforms, 'Waveforms', 'Timepoint', 'Amplitude')
-        st.bokeh_chart(p, use_container_width=True)
-    
-
-        
     # Technology conditioning for HIPPIE encoder. Only the three classes
     # below received gradients during pretraining (slot 3 was reserved
     # but never populated, so we do not expose it here).
@@ -673,18 +698,9 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
         #    h5_downloader(output_array, acg_types, isi_types, waveforms_types)
         #elif downloading_option == "Download .csv (multiple files)":
         csv_downloader(output_array, acg_types, isi_types, waveforms_types)
-            
+
         ############################################
-        
-        p = plotter(acg_types, 'ACG with clusters', 'Timepoint', 'Amplitude', option)
-        st.bokeh_chart(p, use_container_width=True)
-        
-        p = plotter(isi_types, 'ISI distribution with clusters', 'Timepoint', 'Amplitude', option)
-        st.bokeh_chart(p, use_container_width=True)
-        
-        p = plotter(waveforms_types, 'Waveforms with clusters', 'Timepoint', 'Amplitude', option)
-        st.bokeh_chart(p, use_container_width=True)
-    
+
     elif uploaded_file_cell_type is not None:
         
         st.title('Parametric UMAP with cell type information')
@@ -720,61 +736,101 @@ if token_acqm or token_csv or token_nwb or token_phy or token_link:
         # Download
         csv_downloader(output_array, acg_types, isi_types, waveforms_types)
 
-        # Plotting
-        p = plotter(acg_types, 'ACG with celltypes', 'Timepoint', 'Amplitude', option)
-        st.bokeh_chart(p, use_container_width=True)
 
-        p = plotter(isi_types, 'ISI with celltypes', 'Timepoint', 'Amplitude', option)
-        st.bokeh_chart(p, use_container_width=True)
 
-        p = plotter(waveforms_types, 'Waveforms with celltypes', 'Timepoint', 'Amplitude', option)
-        st.bokeh_chart(p, use_container_width=True)
-
-    
-
-    #Ploting only with means per cluster 
+    #Ploting only with means per cluster
 
     st.title('Ploting only with means per cluster')
 
-    acg_mean_list = []
-    isi_mean_list = []
-    wf_mean_list = []
+    means = {'acg': [], 'isi': [], 'wf': []}
+    stds  = {'acg': [], 'isi': [], 'wf': []}
     cluster_labels = []
 
-    if uploaded_file_cell_type is None:
-        for label in acg_types['Classifier'].unique():
-            acg_mean_list.append(np.mean(acg_types[acg_types['Classifier'] == label].drop(columns='Classifier'), axis=0))
-            isi_mean_list.append(np.mean(isi_types[isi_types['Classifier'] == label].drop(columns='Classifier'), axis=0))
-            wf_mean_list.append(np.mean(waveforms_types[waveforms_types['Classifier'] == label].drop(columns='Classifier'), axis=0))
-            cluster_labels.append(label)
+    group_col = 'Classifier' if uploaded_file_cell_type is None else 'Cluster'
+    source = output_array[group_col] if uploaded_file_cell_type is not None else acg_types[group_col]
 
+    for label in source.unique():
+        for key, df in (('acg', acg_types), ('isi', isi_types), ('wf', waveforms_types)):
+            sub = df[df[group_col] == label].drop(columns=group_col)
+            means[key].append(np.mean(sub, axis=0))
+            stds[key].append(np.std(sub, axis=0))
+        cluster_labels.append(label)
 
-    elif uploaded_file_cell_type is not None:
-        for x in output_array['Cluster'].unique():
-            acg_mean_list.append(np.mean(acg_types[acg_types['Cluster']==x].drop(columns='Cluster'), axis=0))
-            isi_mean_list.append(np.mean(isi_types[isi_types['Cluster']==x].drop(columns='Cluster'), axis=0))
-            wf_mean_list.append(np.mean(waveforms_types[waveforms_types['Cluster']==x].drop(columns='Cluster'), axis=0))
+    def _to_df(rows):
+        out = pd.DataFrame(rows)
+        out['Classifier'] = cluster_labels
+        return out
 
-            cluster_labels.append(x)
-        
-    acg_mean_list = pd.DataFrame(acg_mean_list)
-    isi_mean_list = pd.DataFrame(isi_mean_list)
-    wf_mean_list = pd.DataFrame(wf_mean_list)
+    acg_mean_df, acg_std_df = _to_df(means['acg']), _to_df(stds['acg'])
+    isi_mean_df, isi_std_df = _to_df(means['isi']), _to_df(stds['isi'])
+    wf_mean_df,  wf_std_df  = _to_df(means['wf']),  _to_df(stds['wf'])
 
-    acg_mean_list['Classifier'] = cluster_labels
-    isi_mean_list['Classifier'] = cluster_labels
-    wf_mean_list['Classifier'] = cluster_labels
-
-
-
-    p = plotter(pd.DataFrame(acg_mean_list), 'ACG_mean', 'Timepoint', 'Amplitude', selected_cluster=option, alpha_background=0.8, alpha_upfront=0.8, line_width_background=0.8, line_width_upfront=3)
+    p = plotter_mean_std(acg_mean_df, acg_std_df, 'ACG mean ± std', 'Timepoint', 'Amplitude', selected_cluster=option)
     st.bokeh_chart(p, use_container_width=True)
-    p=plotter(pd.DataFrame(isi_mean_list), 'isi_mean', 'Timepoint', 'Amplitude', selected_cluster=option, alpha_background=0.8, alpha_upfront=0.8, line_width_background=0.8, line_width_upfront=3)
+    p = plotter_mean_std(isi_mean_df, isi_std_df, 'ISI mean ± std', 'Timepoint', 'Amplitude', selected_cluster=option)
     st.bokeh_chart(p, use_container_width=True)
-    p=plotter(pd.DataFrame(wf_mean_list), 'Waveforms_mean', 'Timepoint', 'Amplitude', selected_cluster=option, alpha_background=0.8, alpha_upfront=0.8, line_width_background=0.8, line_width_upfront=3)
+    p = plotter_mean_std(wf_mean_df, wf_std_df, 'Waveform mean ± std', 'Timepoint', 'Amplitude', selected_cluster=option)
     st.bokeh_chart(p, use_container_width=True)
 
-    
+
+    # ── Per-cluster metric distributions ──────────────────────────────────
+    st.title('Per-cluster metric distributions')
+
+    cluster_col = 'Classifier' if uploaded_file_cell_type is None else 'Cluster'
+
+    metrics_df = compute_per_unit_table(
+        waveforms_raw, spike_times_sec, sampling_rate_hz=sampling_rate_hz,
+    )
+    # output_array rows survived HIPPIE's valid_mask; waveforms_raw covers all
+    # uploaded units. Align by row index — unmatched rows get NaN cluster and
+    # are dropped before grouping (same pattern the means section uses).
+    metrics_df[cluster_col] = output_array[cluster_col].reindex(
+        metrics_df.index
+    ).values
+    metrics_df = metrics_df.dropna(subset=[cluster_col])
+
+    available = [m for m in CURATED_METRICS if not metrics_df[m].isna().all()]
+    if spike_times_sec is None:
+        st.info(
+            "Spike times not available for this upload type — "
+            "showing waveform metrics only."
+        )
+    if sampling_rate_hz is None:
+        st.info(
+            "Sampling rate not detected — waveform metrics in physical units "
+            "(halfwidth_ms, trough_to_peak_ms, slopes, recovery times) are "
+            "omitted from this plot."
+        )
+
+    selected_metrics = st.multiselect(
+        'Type a metric name to add it to the plot',
+        options=available,
+        default=[],
+        placeholder='e.g. peak_minus_trough, mean_rate, cv_isi',
+    )
+
+    for metric in selected_metrics:
+        sub = metrics_df[[cluster_col, metric]].dropna()
+        chart = (
+            alt.Chart(sub)
+            .mark_boxplot(extent='min-max')
+            .encode(
+                x=alt.X(f'{cluster_col}:N', title='Cluster'),
+                y=alt.Y(f'{metric}:Q', title=metric),
+                color=alt.Color(f'{cluster_col}:N', legend=None),
+            )
+            .properties(width=700, height=300, title=metric)
+        )
+        st.altair_chart(chart, use_container_width=True)
+
+    st.download_button(
+        'Download per-unit metrics (CSV)',
+        data=metrics_df.to_csv(index=False).encode('utf-8'),
+        file_name='per_unit_metrics.csv',
+        mime='text/csv',
+    )
+
+
 
 else:
     st.info("Please upload all required files (ACG, ISI distribution, and waveforms) to create the UMAP visualization.")

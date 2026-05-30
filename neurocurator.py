@@ -530,6 +530,26 @@ class Neurocurator:
             
         return all(validation_results.values())
 
+    @staticmethod
+    def _extract_nwb_sampling_rate(nwb):
+        units = getattr(nwb, "units", None)
+        if units is not None and "waveform_rate" in set(units.colnames):
+            try:
+                rate = float(np.asarray(units["waveform_rate"][0]).reshape(-1)[0])
+                if rate > 0:
+                    return rate
+            except Exception:
+                pass
+        for container in (getattr(nwb, "acquisition", None),
+                          getattr(nwb, "processing", None)):
+            if not container:
+                continue
+            for obj in container.values():
+                rate = getattr(obj, "rate", None)
+                if rate and rate > 0:
+                    return float(rate)
+        return None
+
     def load_nwb_spike_times(self, nwb_path):
         with NWBHDF5IO(nwb_path, "r", load_namespaces=True) as io:
             nwb = io.read()
@@ -584,6 +604,11 @@ class Neurocurator:
                 if k in cols:
                     key = k
                     break
+
+            # Recover sampling rate so physical-unit metrics (halfwidth_ms,
+            # trough_to_peak_ms, slopes) are well-defined for this upload.
+            # Order: per-unit waveform_rate → ElectricalSeries rate → None.
+            self.sampling_rate = self._extract_nwb_sampling_rate(nwb)
 
             #here it loops through the units id there is no waveform column it fills everything with zeros and terminates
             #if we have spike waveforms it takes all points and averages them (uses cut and pad function)
