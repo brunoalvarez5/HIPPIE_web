@@ -76,6 +76,53 @@ def plot_lines(ploted_obj, data, color, alpha, line_width):
 
 
 
+def plotter_mean_std(
+    mean_df, std_df, title, x_label, y_label, selected_cluster=None,
+    alpha_band_background=0.10, alpha_line_background=0.55, line_width_background=1.0,
+    alpha_band_upfront=0.28, alpha_line_upfront=1.0, line_width_upfront=3.0,
+):
+    """Per-cluster mean line with a ±1 std shaded band.
+
+    mean_df / std_df: rows = clusters, cols = timepoints + 'Classifier'.
+    The 'Classifier' column carries the cluster label per row.
+    """
+    from bokeh.plotting import figure
+    from bokeh.models import HoverTool
+
+    p = figure(
+        title=title, x_axis_label=x_label, y_axis_label=y_label,
+        width=800, height=800, tools='pan,wheel_zoom,box_zoom,reset',
+    )
+    p.background_fill_color = None
+    p.border_fill_color = None
+    p.xaxis.major_label_text_color = "white"
+    p.yaxis.major_label_text_color = "white"
+    p.xaxis.axis_label_text_color = "white"
+    p.yaxis.axis_label_text_color = "white"
+    p.title.text_color = "white"
+    p.add_tools(HoverTool(tooltips=[("x", "$x"), ("y", "$y")]))
+
+    labels = mean_df['Classifier'].tolist()
+    mean_vals = mean_df.drop('Classifier', axis=1).values
+    std_vals = std_df.drop('Classifier', axis=1).values
+    x = list(range(mean_vals.shape[1]))
+
+    for i, label in enumerate(labels):
+        is_selected = (selected_cluster is not None) and (label == selected_cluster)
+        color = "#00D8FF" if is_selected else "#FFB000"
+        band_alpha = alpha_band_upfront if is_selected else alpha_band_background
+        line_alpha = alpha_line_upfront if is_selected else alpha_line_background
+        line_w = line_width_upfront if is_selected else line_width_background
+
+        upper = (mean_vals[i] + std_vals[i]).tolist()
+        lower = (mean_vals[i] - std_vals[i]).tolist()
+        p.varea(x=x, y1=lower, y2=upper, fill_color=color, fill_alpha=band_alpha)
+        p.line(x=x, y=mean_vals[i].tolist(), line_color=color,
+               line_alpha=line_alpha, line_width=line_w)
+
+    return p
+
+
 @st.cache_resource
 def plotter(data, title, x_label, y_label, selected_cluster=None, alpha_background=0.5, alpha_upfront=0.8, line_width_background=0.3, line_width_upfront=0.5):
     from bokeh.plotting import figure
@@ -126,7 +173,7 @@ def get_ort_session():
     """
     model_path = os.path.join(
         os.path.dirname(__file__),
-        "epoch=35-step=468.dynamic.onnx"
+        "hippie_techcond_v1.dynamic.onnx"
     )
 
     so = ort.SessionOptions()
@@ -141,39 +188,6 @@ def get_ort_session():
     )
 
 
-
-@st.cache_resource
-def load_model():
-    #import model
-    #create the base_model instance
-    base_model = MultiModalCVAE(
-        modalities={
-            "wave": 50,
-            "isi": 100,
-            "acg": 100 #200 originaly, but we do interpolate to 100
-        },
-        z_dim=5,
-        class_hidden_dim=5,
-        num_sources=7,
-        num_classes=5
-    )
-
-    # Load the full module with the base_model
-    model = MultiModalCVAETrainModule.load_from_checkpoint(
-        "/home/bruno/Documentos/GitHub/HIPPIE_web/epoch=49-step=950.ckpt",
-        base_model=base_model,
-        modality_weights={
-            "wave": 1.0,
-            "isi": 1.0,
-            "acg": 1.0
-        },
-        learning_rate=1e-3,
-        weight_decay=1e-5,
-        beta=1.0
-    )
-
-
-    return model
 
 def drop_nan_rows(*dfs):
     """Drop rows with NaNs from all dataframes simultaneously"""
@@ -218,10 +232,10 @@ def HIPPIE(normalized_acg, normalized_isi, normalized_waveforms, source=None, ch
             acg_fixed[i, 0, :] = np.interp(x_new, x_old, acg[i, 0, :]).astype(np.float32)
         acg = acg_fixed
 
-    # Make labels
+    # Make labels — source is the integer technology ID (0-3)
     N = acg.shape[0]
-    source_labels = np.zeros((N,), dtype=np.int64)
-    class_labels  = np.zeros((N,), dtype=np.int64)
+    source_id = int(source) if source is not None else 0
+    source_labels = np.full((N,), source_id, dtype=np.int64)
 
     # Make contiguous (helps ORT + avoids hidden copies)
     acg  = np.ascontiguousarray(acg)
@@ -234,11 +248,10 @@ def HIPPIE(normalized_acg, normalized_isi, normalized_waveforms, source=None, ch
     outs = []
     for s in range(0, N, chunk):
         feed = {
-            "wave": wave[s:s+chunk],
-            "isi": isi[s:s+chunk],
-            "acg": acg[s:s+chunk],
+            "wave":          wave[s:s+chunk],
+            "isi":           isi[s:s+chunk],
+            "acg":           acg[s:s+chunk],
             "source_labels": source_labels[s:s+chunk],
-            "class_labels": class_labels[s:s+chunk],
         }
         out = sess.run(["hippie_out"], feed)[0]
         outs.append(out)
@@ -280,22 +293,6 @@ def compute_umap(data):
     umap_model = umap.UMAP()
     embedding = umap_model.fit_transform(data)
     return embedding
-
-
-@st.cache_resource
-def compute_pumap(embedding):
-    import onnxruntime as ort
-    model = ort.InferenceSession("Mark_VII_model.onnx")
-    input_name = model.get_inputs()[0].name
-
-    # #TODO run model
-    input = np.array(embedding, dtype=np.float32)
-    output = model.run(None, {input_name: input})[0]
-
-    output_array = np.array(output)
-
-    return output_array
-
 
 
 @st.cache_data
@@ -464,6 +461,62 @@ def resize_rows_linear(arr: np.ndarray, out_len: int) -> np.ndarray:
         out[i] = np.interp(x_new, x_old, arr[i]).astype(np.float32)
     return out
 
+
+# ---------------------------------------------------------------------------
+# Canonical model-input preprocessing.
+#
+# These mirror the training / HuggingFace reference pipeline exactly
+# (hippie_huggingface/extract_embeddings.py): each modality is resampled to its
+# fixed length and min-max normalized per row to [-1, 1], with ISI additionally
+# log(x+1)-transformed first. The pretrained checkpoint was trained on inputs in
+# this representation, so anything fed to the encoder MUST be preprocessed the
+# same way; feeding raw resampled values produces out-of-distribution embeddings.
+#
+# Resampling reproduces torch ``F.interpolate(mode="linear", align_corners=False)``
+# (the convention used at training time) in pure NumPy, so the app stays
+# torch-free. Verified to match torch to float32 precision (~1e-5). This differs
+# from resize_rows_linear (align_corners=True), which is kept only for plotting.
+# ---------------------------------------------------------------------------
+def _resample_linear_align_false(arr: np.ndarray, out_len: int) -> np.ndarray:
+    """Per-row linear resample matching torch F.interpolate(align_corners=False)."""
+    arr = np.asarray(arr, dtype=np.float32)
+    n, in_len = arr.shape
+    if in_len == out_len:
+        return arr.copy()
+    scale = in_len / out_len
+    pos = (np.arange(out_len, dtype=np.float64) + 0.5) * scale - 0.5
+    pos = np.clip(pos, 0.0, in_len - 1)
+    left = np.floor(pos).astype(np.int64)
+    right = np.minimum(left + 1, in_len - 1)
+    frac = (pos - left).astype(np.float32)
+    return (arr[:, left] * (1.0 - frac) + arr[:, right] * frac).astype(np.float32)
+
+
+def _minmax_to_minus1_1(arr: np.ndarray) -> np.ndarray:
+    """Per-row min-max normalization to [-1, 1]."""
+    arr = np.asarray(arr, dtype=np.float32)
+    mn = arr.min(axis=1, keepdims=True)
+    mx = arr.max(axis=1, keepdims=True)
+    return ((arr - mn) / (mx - mn + 1e-8) * 2.0 - 1.0).astype(np.float32)
+
+
+def preprocess_waveforms_for_model(arr: np.ndarray) -> np.ndarray:
+    """Resample to 50 samples, then min-max normalize each row to [-1, 1]."""
+    return _minmax_to_minus1_1(_resample_linear_align_false(np.asarray(arr, dtype=np.float32), 50))
+
+
+def preprocess_isi_for_model(arr: np.ndarray) -> np.ndarray:
+    """log(x+1), resample to 100 bins, then min-max normalize each row to [-1, 1]."""
+    arr = np.nan_to_num(np.asarray(arr, dtype=np.float32), nan=0.0)
+    arr = np.log(arr + 1.0)
+    return _minmax_to_minus1_1(_resample_linear_align_false(arr, 100))
+
+
+def preprocess_acg_for_model(arr: np.ndarray) -> np.ndarray:
+    """Resample to 100 bins, then min-max normalize each row to [-1, 1]."""
+    arr = np.nan_to_num(np.asarray(arr, dtype=np.float32), nan=0.0)
+    return _minmax_to_minus1_1(_resample_linear_align_false(arr, 100))
+
 @st.cache_data
 def acqm_file_reader_np(tmp_file_path):
     from neurocurator import Neurocurator
@@ -474,8 +527,9 @@ def acqm_file_reader_np(tmp_file_path):
     acg = reader.acgs.to_numpy(dtype=np.float32, copy=True)
     isi = reader.isi_distribution.to_numpy(dtype=np.float32, copy=True)
     wf  = reader.waveforms.to_numpy(dtype=np.float32, copy=True)
+    fs  = float(reader.sampling_rate) if reader.sampling_rate else None
 
-    return acg, isi, wf
+    return acg, isi, wf, fs
 
 
 
